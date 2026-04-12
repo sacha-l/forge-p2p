@@ -1,7 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use swarm_nl::core::{CoreBuilder, NetworkEvent};
+use swarm_nl::core::{AppData, AppResponse, CoreBuilder, NetworkEvent};
 use swarm_nl::setup::BootstrapConfig;
+
+const GOSSIP_TOPIC: &str = "echo-network";
 
 /// Echo Gossip — peers echo back whatever they receive on a gossip topic.
 #[derive(Parser)]
@@ -45,7 +47,38 @@ async fn main() -> Result<()> {
         }
     }
 
-    println!("Node started successfully.");
+    // Join the gossip topic
+    let join_request = AppData::GossipsubJoinNetwork(GOSSIP_TOPIC.to_string());
+    match node.query_network(join_request).await {
+        Ok(AppResponse::GossipsubJoinSuccess) => {
+            println!("Joined gossip topic: {GOSSIP_TOPIC}");
+        }
+        Ok(other) => {
+            anyhow::bail!("Unexpected response joining topic: {other:?}");
+        }
+        Err(e) => {
+            anyhow::bail!("Failed to join gossip topic: {e:?}");
+        }
+    }
 
-    Ok(())
+    // Event loop — listen for incoming gossip messages
+    println!("Listening for messages on '{GOSSIP_TOPIC}'...");
+    loop {
+        if let Some(event) = node.next_event().await {
+            match event {
+                NetworkEvent::GossipsubIncomingMessageHandled { source, data } => {
+                    for msg in &data {
+                        println!("[{source}] {msg}");
+                    }
+                }
+                NetworkEvent::GossipsubSubscribeMessageReceived { peer_id, topic } => {
+                    println!("Peer {peer_id} joined topic '{topic}'");
+                }
+                NetworkEvent::GossipsubUnsubscribeMessageReceived { peer_id, topic } => {
+                    println!("Peer {peer_id} left topic '{topic}'");
+                }
+                _ => {}
+            }
+        }
+    }
 }

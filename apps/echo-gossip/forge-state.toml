@@ -5,13 +5,13 @@ created = "2026-04-12T00:00:00Z"
 
 [progress]
 total_steps = 5
-current_step = 2
+current_step = 3
 status = "in-progress"
-last_completed_step = 1
+last_completed_step = 2
 last_updated = "2026-04-12T00:00:00Z"
 
 [current_step]
-title = "Join gossip topic and listen for events"
+title = "Broadcast and echo logic"
 attempt = 1
 files_modified = []
 
