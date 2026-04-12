@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -144,7 +145,107 @@ async fn main() -> Result<()> {
             println!("{}", note.content);
         }
         Command::Sync => {
-            println!("sync: not implemented");
+            let remote_index = net::new_remote_index();
+
+            // Poll for gossip announcements for a few seconds to learn about remote state
+            println!("Listening for peer announcements...");
+            let poll_deadline =
+                tokio::time::Instant::now() + Duration::from_secs(5);
+            while tokio::time::Instant::now() < poll_deadline {
+                if let Some(
+                    swarm_nl::core::NetworkEvent::GossipsubIncomingMessageHandled {
+                        source,
+                        data,
+                    },
+                ) = node.next_event().await
+                {
+                    net::handle_gossip_message(&data, &source.to_string(), &remote_index);
+                }
+                // Also consume replication buffer data
+                if let Some(repl_data) = node.consume_repl_data(net::REPL_NETWORK).await {
+                    // Parse replicated note metadata: [id, title, version, updated_at]
+                    if repl_data.data.len() >= 3 {
+                        let note_id = &repl_data.data[0];
+                        let title = &repl_data.data[1];
+                        if let Ok(version) = repl_data.data[2].parse::<u64>() {
+                            let mut index =
+                                remote_index.lock().expect("remote index lock poisoned");
+                            let entry = index
+                                .entry(note_id.clone())
+                                .or_insert((String::new(), 0, String::new()));
+                            if version > entry.1 {
+                                *entry = (
+                                    title.clone(),
+                                    version,
+                                    repl_data.sender.to_string(),
+                                );
+                            }
+                        }
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+
+            // Diff local vs remote
+            let local_notes = note_store.list()?;
+            let local_versions: std::collections::HashMap<String, u64> = local_notes
+                .iter()
+                .map(|m| (m.id.clone(), m.version))
+                .collect();
+
+            // Collect remote state and release the lock before async work
+            let to_fetch: Vec<(String, String, u64, String)> = {
+                let remote = remote_index.lock().expect("remote index lock poisoned");
+                remote
+                    .iter()
+                    .filter_map(|(note_id, (title, remote_ver, peer_str))| {
+                        let local_ver = local_versions.get(note_id).copied().unwrap_or(0);
+                        if *remote_ver > local_ver {
+                            Some((
+                                note_id.clone(),
+                                title.clone(),
+                                *remote_ver,
+                                peer_str.clone(),
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            };
+
+            let remote_count = remote_index.lock().expect("lock").len();
+            let up_to_date = remote_count.saturating_sub(to_fetch.len());
+            let mut pulled = 0u32;
+
+            for (note_id, title, _remote_ver, peer_str) in &to_fetch {
+                match peer_str.parse::<swarm_nl::PeerId>() {
+                    Ok(peer_id) => {
+                        match net::fetch_note_via_rpc(&mut node, &peer_id, note_id).await {
+                            Ok(note) => {
+                                note_store.save(&note)?;
+                                println!(
+                                    "Pulled: {} '{}' v{}",
+                                    note.id, note.title, note.version
+                                );
+                                pulled += 1;
+                            }
+                            Err(e) => {
+                                println!("Failed to fetch {note_id}: {e}");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Cannot parse peer ID for '{title}': {e}");
+                    }
+                }
+            }
+
+            if pulled == 0 && up_to_date == 0 && remote_count == 0 {
+                println!("No remote notes discovered. Is another device connected?");
+            } else {
+                println!("\nSync complete: {pulled} pulled, {up_to_date} up to date");
+            }
         }
         Command::Status => {
             println!("status: not implemented");
