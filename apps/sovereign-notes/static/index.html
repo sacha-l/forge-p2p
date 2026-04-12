@@ -10,11 +10,14 @@
   <div class="toolbar">
     <button id="btn-new">+ New Note</button>
     <button id="btn-refresh">Refresh</button>
+    <button id="btn-spawn-peer" title="Spawn a local peer that connects to this node">+ Spawn Peer</button>
     <div class="sync-status">
       <span class="dot" id="sync-dot"></span>
       <span id="sync-text">connecting...</span>
     </div>
   </div>
+
+  <div id="spawned-peers"></div>
 
   <div id="new-note-dialog">
     <input type="text" id="new-title" placeholder="Note title...">

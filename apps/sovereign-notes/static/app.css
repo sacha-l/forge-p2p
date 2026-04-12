@@ -225,6 +225,36 @@ h2 {
   border-radius: 3px;
 }
 
+/* Spawned peers */
+#spawned-peers {
+  margin-bottom: 12px;
+}
+
+.spawned-peer {
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--green);
+  border-radius: 3px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.spawned-peer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.spawned-peer a:hover {
+  text-decoration: underline;
+}
+
+.spawned-peer.error {
+  border-left-color: var(--orange);
+  color: var(--orange);
+}
+
 /* Status bar */
 #status-bar {
   margin-top: 12px;

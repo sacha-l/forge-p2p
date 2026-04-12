@@ -158,6 +158,31 @@
 
   document.getElementById("btn-refresh").addEventListener("click", loadNotes);
 
+  document.getElementById("btn-spawn-peer").addEventListener("click", async () => {
+    const btn = document.getElementById("btn-spawn-peer");
+    btn.disabled = true;
+    btn.textContent = "Spawning...";
+    try {
+      const res = await fetch("/api/spawn-peer", { method: "POST" });
+      const info = await res.json();
+      const peersEl = document.getElementById("spawned-peers");
+      if (info.error) {
+        peersEl.innerHTML += `<div class="spawned-peer error">Spawn failed: ${esc(info.error)}</div>`;
+      } else {
+        peersEl.innerHTML += `<div class="spawned-peer">
+          Peer #${peersEl.children.length + 1}: pid ${info.pid} &middot;
+          tcp ${info.tcp_port} &middot;
+          <a href="${info.ui_url}" target="_blank">${info.ui_url}</a>
+        </div>`;
+      }
+    } catch (e) {
+      console.error("Spawn peer failed:", e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "+ Spawn Peer";
+    }
+  });
+
   document.getElementById("btn-save").addEventListener("click", async () => {
     if (!selectedNoteId) return;
     const content = document.getElementById("note-editor").value;

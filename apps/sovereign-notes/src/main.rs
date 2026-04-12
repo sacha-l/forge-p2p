@@ -329,6 +329,10 @@ async fn run_serve(
 
     let store = Arc::new(note_store);
 
+    // Track spawned peer processes so they can be killed on shutdown
+    let spawned_peers: Arc<std::sync::Mutex<Vec<std::process::Child>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+
     // Build app-specific API routes
     let api_store = Arc::clone(&store);
     let api_routes = Router::new()
@@ -374,7 +378,7 @@ async fn run_serve(
                 }
             }
         }))
-        .route("/api/notes/{id}", routing::get({
+        .route("/api/notes/:id", routing::get({
             let s = Arc::clone(&api_store);
             move |Path(id): Path<String>| {
                 let s = Arc::clone(&s);
@@ -392,7 +396,7 @@ async fn run_serve(
                 }
             }
         }))
-        .route("/api/notes/{id}", routing::put({
+        .route("/api/notes/:id", routing::put({
             let s = Arc::clone(&api_store);
             move |Path(id): Path<String>, Json(body): Json<serde_json::Value>| {
                 let s = Arc::clone(&s);
@@ -407,6 +411,77 @@ async fn run_serve(
                             "updated_at": note.updated_at.to_rfc3339(),
                         })),
                         Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+                    }
+                }
+            }
+        }))
+        .route("/api/spawn-peer", routing::post({
+            let peer_id = peer_id.clone();
+            let listen_addrs = listen_addrs.clone();
+            let spawned = Arc::clone(&spawned_peers);
+            move || {
+                let peer_id = peer_id.clone();
+                let listen_addrs = listen_addrs.clone();
+                let spawned = Arc::clone(&spawned);
+                async move {
+                    // Pick a local /ip4/127.0.0.1/tcp/... addr to use as the bootnode addr
+                    let boot_addr = listen_addrs
+                        .iter()
+                        .find(|a| a.contains("127.0.0.1") && a.contains("/tcp/"))
+                        .cloned();
+                    let boot_addr = match boot_addr {
+                        Some(a) => a,
+                        None => {
+                            return Json(serde_json::json!({
+                                "error": "no local tcp listen address available yet",
+                            }));
+                        }
+                    };
+
+                    // Pick unused ports by offsetting based on how many peers are spawned
+                    let idx = spawned.lock().expect("spawned lock").len() as u16;
+                    let tcp_port = 52000 + idx * 10;
+                    let udp_port = tcp_port + 1;
+                    let ui_port = 18080 + idx;
+                    let data_dir = format!("./notes-data-peer-{}", idx + 1);
+
+                    let exe = match std::env::current_exe() {
+                        Ok(p) => p,
+                        Err(e) => {
+                            return Json(serde_json::json!({
+                                "error": format!("cannot find current exe: {e}"),
+                            }));
+                        }
+                    };
+
+                    let child = std::process::Command::new(&exe)
+                        .args([
+                            "--tcp-port", &tcp_port.to_string(),
+                            "--udp-port", &udp_port.to_string(),
+                            "--data-dir", &data_dir,
+                            "--boot-peer-id", &peer_id,
+                            "--boot-addr", &boot_addr,
+                            "serve",
+                            "--ui-port", &ui_port.to_string(),
+                        ])
+                        .spawn();
+
+                    match child {
+                        Ok(c) => {
+                            let pid = c.id();
+                            spawned.lock().expect("spawned lock").push(c);
+                            Json(serde_json::json!({
+                                "pid": pid,
+                                "tcp_port": tcp_port,
+                                "udp_port": udp_port,
+                                "ui_port": ui_port,
+                                "data_dir": data_dir,
+                                "ui_url": format!("http://127.0.0.1:{ui_port}"),
+                            }))
+                        }
+                        Err(e) => Json(serde_json::json!({
+                            "error": format!("spawn failed: {e}"),
+                        })),
                     }
                 }
             }
@@ -427,6 +502,19 @@ async fn run_serve(
         .await?;
 
     println!("Web UI running at http://127.0.0.1:{ui_port}");
+
+    // Install a ctrl-c handler to kill spawned peer processes
+    let spawned_for_shutdown = Arc::clone(&spawned_peers);
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            let mut children = spawned_for_shutdown.lock().expect("spawned lock");
+            for child in children.iter_mut() {
+                let _ = child.kill();
+            }
+            println!("\nShutting down sovereign-notes and {} spawned peer(s)", children.len());
+            std::process::exit(0);
+        }
+    });
 
     // Give the browser a moment to connect before pushing the initial event,
     // since broadcast channels don't replay history for late subscribers.
