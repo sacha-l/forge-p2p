@@ -1,0 +1,26 @@
+[app]
+name = "sovereign-notes"
+branch = "dev/sovereign-notes"
+created = "2026-04-12T00:00:00Z"
+
+[progress]
+total_steps = 8
+current_step = 2
+status = "in-progress"
+last_completed_step = 1
+last_updated = "2026-04-12T00:00:00Z"
+
+[current_step]
+title = "Local note storage"
+attempt = 1
+files_modified = []
+
+[blocker]
+step = 0
+description = ""
+is_library_issue = false
+
+[validation]
+last_cargo_check = "pass"
+last_cargo_clippy = "pass"
+last_cargo_test = "pass"

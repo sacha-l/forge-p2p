@@ -1,0 +1,137 @@
+[app]
+name = "sovereign-notes"
+description = "CLI note-taking tool that syncs notes across devices peer-to-peer. Uses replication for consistency, gossip for real-time change announcements, and RPC for on-demand note transfer."
+primary_pattern = "replication+gossip+rpc"
+node_count = 2
+node_roles = "equal"
+complexity = "moderate"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+[[steps]]
+number = 1
+title = "Scaffold and basic node"
+description = """
+Create Cargo.toml with all dependencies. Create src/main.rs with a clap CLI \
+that has subcommands: new, edit, ls, read, sync, status. Each subcommand is a \
+stub that prints 'not implemented'. Add --tcp-port, --udp-port, --data-dir, \
+--boot-peer-id, --boot-addr as global flags. Boot a SwarmNL node with the \
+configured ports, print PeerId and listen address, then dispatch to the \
+subcommand stub."""
+files = ["Cargo.toml", "src/main.rs"]
+apis = ["BootstrapConfig", "CoreBuilder", "NetworkEvent::NewListenAddr"]
+test_criteria = "cargo run -- --tcp-port 51000 --udp-port 51001 ls prints PeerId and 'not implemented'. All subcommands parse without error."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 2
+title = "Local note storage"
+description = """
+Create src/store.rs with a NoteStore struct that manages notes on disk. Each note \
+is a JSON file at <data-dir>/notes/<id>.json with fields: id (UUID), title, \
+content, created_at, updated_at, version (u64, monotonic). Implement methods: \
+create(title) -> Note, update(id, content) -> Note (bumps version), get(id) -> Note, \
+list() -> Vec<NoteMeta>, delete(id). Wire up the 'new', 'edit', 'ls', 'read' \
+subcommands to these methods (no networking yet)."""
+files = ["src/store.rs", "src/main.rs"]
+apis = []
+test_criteria = "Unit tests: create a note, read it back, update it (version increments), list shows it, delete removes it. CLI commands work against a temp directory."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 3
+title = "Replication setup and note change broadcasting"
+description = """
+Configure the node with ReplNetworkConfig (Eventual consistency). Join a \
+replica network called 'sovereign-notes-sync'. When a note is created or \
+updated, replicate the note metadata (id, title, version, updated_at) to \
+the replica network using node.replicate(). Add an event loop task that \
+consumes ReplicaDataIncoming events and prints what was received."""
+files = ["src/main.rs", "src/net.rs"]
+apis = ["ReplNetworkConfig", "CoreBuilder::with_replication", "Core::join_repl_network", "Core::replicate", "Core::consume_repl_data", "NetworkEvent::ReplicaDataIncoming"]
+test_criteria = "Node boots with replication configured. After creating a note, replication payload is sent without error. Event loop handles incoming replica data."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 4
+title = "Gossip for real-time change announcements"
+description = """
+Join a gossip topic 'sovereign-notes-changes'. When a note is created or \
+updated, broadcast a JSON change announcement: {type: 'updated', note_id, \
+title, version}. In the event loop, handle GossipsubIncomingMessageHandled \
+events: parse the announcement and print it. Store announced remote note \
+versions in a HashMap<NoteId, RemoteVersion> for later sync."""
+files = ["src/net.rs", "src/main.rs"]
+apis = ["AppData::GossipsubJoinNetwork", "AppData::GossipsubBroadcastMessage", "NetworkEvent::GossipsubIncomingMessageHandled"]
+test_criteria = "Node joins gossip topic. Creating a note broadcasts a change announcement. Incoming announcements are parsed and remote versions are tracked."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 5
+title = "RPC handler for note content transfer"
+description = """
+Configure the node with CoreBuilder::with_rpc(). Define an RPC handler \
+function that receives a note ID request and returns the full note JSON. \
+The handler reads from the data directory. Also implement the client side: \
+a function that sends SendRpc to a peer with a note ID and receives the note \
+content back."""
+files = ["src/net.rs", "src/rpc.rs"]
+apis = ["CoreBuilder::with_rpc", "RpcConfig", "AppData::SendRpc", "AppResponse::SendRpc", "NetworkEvent::RpcIncomingMessageHandled"]
+test_criteria = "RPC handler is registered at build time. A note request with a valid ID returns the note JSON. An invalid ID returns an error payload."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 6
+title = "Sync command — diff and pull"
+description = """
+Implement the 'sync' subcommand. It compares the local note index (id -> version) \
+against the tracked remote versions from gossip announcements. For each note \
+where remote version > local version (or note is missing locally), send an \
+RPC request to the peer to fetch the full note content and save it locally. \
+Print a sync summary: N notes pulled, M notes already up to date."""
+files = ["src/main.rs", "src/net.rs"]
+apis = ["AppData::SendRpc", "AppResponse::SendRpc"]
+test_criteria = "When remote announces a note we don't have, 'sync' fetches it via RPC and saves it locally. When all notes match, sync reports 'already up to date'."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 7
+title = "Status command and polish"
+description = """
+Implement the 'status' subcommand: show local PeerId, connected peers, \
+joined topics, local note count, and pending sync items (remote notes with \
+higher versions). Use AppData::GossipsubGetInfo and AppData::GetNetworkInfo \
+to gather network state. Polish error messages and add --help descriptions \
+to all CLI commands."""
+files = ["src/main.rs"]
+apis = ["AppData::GossipsubGetInfo", "AppData::GetNetworkInfo", "AppResponse::GossipsubGetInfo", "AppResponse::GetNetworkInfo"]
+test_criteria = "Status command prints peer info, connected peers, topic subscriptions, and note counts without error."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 8
+title = "Integration test with two nodes"
+description = """
+Write an integration test: spin up two nodes (ports 49200/49201 and 49300/49301) \
+with separate temp data directories. Node1 creates a note. Wait for gossip mesh. \
+Node1 broadcasts the change. Node2 receives the announcement. Node2 syncs via \
+RPC to fetch the full note. Assert the note exists in Node2's data directory \
+with correct content and version. Wrap in tokio::time::timeout(60s)."""
+files = ["tests/integration.rs"]
+apis = ["BootstrapConfig", "CoreBuilder", "Core::replicate", "AppData::GossipsubBroadcastMessage", "AppData::SendRpc"]
+test_criteria = "Two nodes exchange a note end-to-end: create on node1, announce via gossip, fetch via RPC on node2. Note content matches. Test passes within 60 seconds."
+test_command = "cargo test -- --test-threads=1"
+validation = ["cargo check", "cargo clippy", "cargo test"]

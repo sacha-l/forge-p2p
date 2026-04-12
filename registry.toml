@@ -11,3 +11,13 @@
 # steps_total = 5
 # steps_done = 5
 # created = "2026-04-12"
+
+[[apps]]
+name = "sovereign-notes"
+description = "CLI note-taking tool that syncs notes across devices peer-to-peer"
+status = "planned"
+branch = "dev/sovereign-notes"
+pattern = "replication+gossip+rpc"
+steps_total = 8
+steps_done = 0
+created = "2026-04-12"
