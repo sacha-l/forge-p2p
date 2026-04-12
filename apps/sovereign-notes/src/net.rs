@@ -70,9 +70,10 @@ pub async fn build_node(
 }
 
 /// Drain setup events and print PeerId / listen addresses.
-/// Returns the local PeerId as a string.
-pub async fn drain_setup_events(node: &mut Core) -> String {
+/// Returns (peer_id, listen_addrs).
+pub async fn drain_setup_events(node: &mut Core) -> (String, Vec<String>) {
     let mut peer_id = String::new();
+    let mut addrs = Vec::new();
     while let Some(event) = node.next_event().await {
         match event {
             NetworkEvent::NewListenAddr {
@@ -83,11 +84,12 @@ pub async fn drain_setup_events(node: &mut Core) -> String {
                 peer_id = local_peer_id.to_string();
                 println!("PeerId: {local_peer_id}");
                 println!("Listening on: {address}");
+                addrs.push(address.to_string());
             }
             _ => break,
         }
     }
-    peer_id
+    (peer_id, addrs)
 }
 
 /// Join the replication network.

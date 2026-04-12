@@ -162,6 +162,9 @@
         updateGraph();
         advancePhase("Listening for peers on " + (e.listen_addrs[0] || "..."));
         logEvent("node-started", "NODE", `Started ${shortId(e.peer_id)}`);
+        // Node is running — hide the loading overlay after a brief pause
+        // so the user can read the phase message
+        setTimeout(hideLoading, 1500);
         break;
 
       case "PeerConnected":

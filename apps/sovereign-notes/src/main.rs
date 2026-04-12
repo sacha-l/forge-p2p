@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
     .await?;
 
     // Drain setup events
-    let peer_id = net::drain_setup_events(&mut node).await;
+    let (peer_id, listen_addrs) = net::drain_setup_events(&mut node).await;
 
     // Join replication network and gossip topic
     net::join_repl_network(&mut node).await?;
@@ -302,7 +302,7 @@ async fn main() -> Result<()> {
             println!("Local notes: {}", notes.len());
         }
         Command::Serve { ui_port } => {
-            run_serve(node, note_store, peer_id, ui_port).await?;
+            run_serve(node, note_store, peer_id, listen_addrs, ui_port).await?;
         }
     }
 
@@ -314,6 +314,7 @@ async fn run_serve(
     mut node: swarm_nl::core::Core,
     note_store: store::NoteStore,
     peer_id: String,
+    listen_addrs: Vec<String>,
     ui_port: u16,
 ) -> Result<()> {
     use axum::{extract::Path, routing, Json, Router};
@@ -423,7 +424,7 @@ async fn run_serve(
     // Push initial NodeStarted event
     ui.push(MeshEvent::NodeStarted {
         peer_id: peer_id.clone(),
-        listen_addrs: vec![format!("/ip4/127.0.0.1/tcp/{}", 51000)],
+        listen_addrs,
     })
     .await;
 
