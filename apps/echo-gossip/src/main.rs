@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use clap::Parser;
 use swarm_nl::core::{AppData, AppResponse, CoreBuilder, NetworkEvent};
@@ -17,16 +19,30 @@ struct Cli {
     /// UDP port for the node
     #[arg(long, default_value_t = 50001)]
     udp_port: u16,
+
+    /// PeerId of a bootnode to connect to
+    #[arg(long)]
+    boot_peer_id: Option<String>,
+
+    /// Multiaddr of the bootnode (e.g. /ip4/127.0.0.1/tcp/50000)
+    #[arg(long)]
+    boot_addr: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Configure and build the node
-    let config = BootstrapConfig::new()
+    // Build bootstrap config with optional bootnode
+    let mut config = BootstrapConfig::new()
         .with_tcp(cli.tcp_port)
         .with_udp(cli.udp_port);
+
+    if let (Some(peer_id), Some(addr)) = (cli.boot_peer_id, cli.boot_addr) {
+        let mut bootnodes = HashMap::new();
+        bootnodes.insert(peer_id, addr);
+        config = config.with_bootnodes(bootnodes);
+    }
 
     let mut node = CoreBuilder::with_config(config)
         .build()
