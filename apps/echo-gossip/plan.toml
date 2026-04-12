@@ -1,0 +1,80 @@
+[app]
+name = "echo-gossip"
+description = "Peers join a gossip topic, broadcast messages, and echo back whatever they receive. The simplest possible SwarmNL app — validates the full forge workflow end to end."
+primary_pattern = "gossip"
+node_count = 2
+node_roles = "equal"
+complexity = "simple"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+
+[[steps]]
+number = 1
+title = "Scaffold and basic node"
+description = """
+Create Cargo.toml (swarm-nl + tokio + anyhow + clap). Create src/main.rs with a CLI \
+that accepts --tcp-port and --udp-port flags. Boot a single node with BootstrapConfig, \
+consume setup events, print PeerId and listen addresses, then exit cleanly."""
+files = ["Cargo.toml", "src/main.rs"]
+apis = ["BootstrapConfig", "CoreBuilder", "NetworkEvent::NewListenAddr"]
+test_criteria = "cargo run -- --tcp-port 50000 --udp-port 50001 starts a node, prints PeerId and address, exits without error."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 2
+title = "Join gossip topic and listen for events"
+description = """
+After the node boots, join a gossip topic called \"echo-network\" using \
+AppData::GossipsubJoinNetwork. Add an event loop that matches on \
+NetworkEvent::GossipsubIncomingMessage and prints incoming messages. \
+Also handle GossipsubSubscribed to log peer joins."""
+files = ["src/main.rs"]
+apis = ["AppData::GossipsubJoinNetwork", "AppResponse::GossipsubJoinSuccess", "NetworkEvent::GossipsubIncomingMessage", "NetworkEvent::GossipsubSubscribed"]
+test_criteria = "Node joins topic without error. Event loop runs and would print incoming messages if any arrived."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 3
+title = "Broadcast and echo logic"
+description = """
+Add broadcast capability: on startup (after a short delay), broadcast a greeting \
+message. In the event loop, when a GossipsubIncomingMessage arrives, if the message \
+does NOT start with \"echo:\" prefix, broadcast back \"echo: <original_message>\". \
+This prefix check prevents infinite echo loops."""
+files = ["src/main.rs"]
+apis = ["AppData::GossipsubBroadcastMessage", "AppResponse::GossipsubBroadcastSuccess"]
+test_criteria = "Node broadcasts a greeting. Incoming non-echo messages trigger an echo broadcast. Messages with 'echo:' prefix are printed but not re-echoed."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 4
+title = "Multi-node CLI with bootnode support"
+description = """
+Add --boot-peer-id and --boot-addr CLI flags so a second node can connect to the \
+first as a bootnode. When bootnode args are provided, build a BootstrapConfig with \
+the bootnode in the HashMap. This enables running two nodes that discover each other."""
+files = ["src/main.rs"]
+apis = ["BootstrapConfig::new", "BootstrapConfig::with_bootnodes", "BootstrapConfig::with_tcp", "BootstrapConfig::with_udp"]
+test_criteria = "Two nodes can be started manually: node1 on default ports, node2 with --boot-peer-id and --boot-addr pointing to node1. They connect and exchange echo messages."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 5
+title = "Integration test with two nodes"
+description = """
+Write an integration test that programmatically spawns two nodes (ports 49000/49001 \
+and 49100/49101). Node1 boots first, node2 connects as bootnode. Both join the \
+\"echo-network\" topic. Node1 broadcasts a message, node2 receives it and echoes. \
+Node1 receives the echo. Assert the echo has the correct prefix and content. \
+Wrap the whole test in tokio::time::timeout(30s)."""
+files = ["tests/integration.rs"]
+apis = ["BootstrapConfig", "CoreBuilder", "AppData::GossipsubJoinNetwork", "AppData::GossipsubBroadcastMessage", "NetworkEvent::GossipsubIncomingMessage"]
+test_criteria = "cargo test runs the integration test. Two nodes exchange a message and its echo within 30 seconds. Test passes."
+test_command = "cargo test -- --test integration"
+validation = ["cargo check", "cargo clippy", "cargo test"]

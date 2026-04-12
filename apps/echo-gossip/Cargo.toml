@@ -1,0 +1,11 @@
+[package]
+name = "echo-gossip"
+version = "0.1.0"
+edition = "2021"
+description = "Peers join a gossip topic, broadcast messages, and echo back whatever they receive"
+
+[dependencies]
+swarm-nl = { version = "0.2.1", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
