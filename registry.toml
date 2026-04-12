@@ -15,9 +15,9 @@
 [[apps]]
 name = "sovereign-notes"
 description = "CLI note-taking tool that syncs notes across devices peer-to-peer"
-status = "planned"
+status = "complete"
 branch = "dev/sovereign-notes"
 pattern = "replication+gossip+rpc"
 steps_total = 8
-steps_done = 0
+steps_done = 8
 created = "2026-04-12"
