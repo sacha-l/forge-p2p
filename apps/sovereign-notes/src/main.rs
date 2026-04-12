@@ -6,6 +6,8 @@ use clap::{Parser, Subcommand};
 use swarm_nl::core::{CoreBuilder, NetworkEvent};
 use swarm_nl::setup::BootstrapConfig;
 
+mod store;
+
 /// Sovereign Notes — peer-to-peer note syncing across your devices.
 #[derive(Parser)]
 #[command(name = "sovereign-notes")]
@@ -41,10 +43,12 @@ enum Command {
         /// Title of the note
         title: String,
     },
-    /// Edit an existing note
+    /// Edit an existing note's content
     Edit {
         /// Note ID (UUID)
         id: String,
+        /// New content for the note
+        content: String,
     },
     /// List all notes
     Ls,
@@ -94,19 +98,41 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Initialize note store
+    let note_store = store::NoteStore::new(&cli.data_dir)?;
+
     // Dispatch to subcommand
     match cli.command {
         Command::New { title } => {
-            println!("new: not implemented (title: {title})");
+            let note = note_store.create(&title)?;
+            println!("Created note: {} ({})", note.title, note.id);
         }
-        Command::Edit { id } => {
-            println!("edit: not implemented (id: {id})");
+        Command::Edit { id, content } => {
+            let note = note_store.update(&id, &content)?;
+            println!("Updated note: {} (v{})", note.title, note.version);
         }
         Command::Ls => {
-            println!("ls: not implemented");
+            let notes = note_store.list()?;
+            if notes.is_empty() {
+                println!("No notes yet. Create one with: sovereign-notes new \"My Note\"");
+            } else {
+                println!("{:<38} {:<30} {:<5} UPDATED", "ID", "TITLE", "VER");
+                for meta in &notes {
+                    println!(
+                        "{:<38} {:<30} {:<5} {}",
+                        meta.id,
+                        meta.title,
+                        meta.version,
+                        meta.updated_at.format("%Y-%m-%d %H:%M")
+                    );
+                }
+                println!("\n{} note(s)", notes.len());
+            }
         }
         Command::Read { id } => {
-            println!("read: not implemented (id: {id})");
+            let note = note_store.get(&id)?;
+            println!("--- {} (v{}) ---", note.title, note.version);
+            println!("{}", note.content);
         }
         Command::Sync => {
             println!("sync: not implemented");
