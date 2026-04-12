@@ -89,12 +89,21 @@ async fn main() -> Result<()> {
     // Drain setup events
     let (peer_id, listen_addrs) = net::drain_setup_events(&mut node).await;
 
-    // Join replication network and gossip topic
-    net::join_repl_network(&mut node).await?;
-    let gossip_joined = net::join_gossip(&mut node).await?;
-
     // Initialize note store
     let note_store = store::NoteStore::new(&cli.data_dir)?;
+
+    // For serve, start the UI first and join networks in the background.
+    // For CLI commands, join networks before dispatching.
+    if matches!(cli.command, Command::Serve { .. }) {
+        let Command::Serve { ui_port } = cli.command else {
+            unreachable!()
+        };
+        return run_serve(node, note_store, peer_id, listen_addrs, ui_port).await;
+    }
+
+    // Join replication network and gossip topic (CLI commands only)
+    net::join_repl_network(&mut node).await?;
+    let _gossip_joined = net::join_gossip(&mut node).await?;
 
     // Dispatch to subcommand
     match cli.command {
@@ -301,9 +310,7 @@ async fn main() -> Result<()> {
             let notes = note_store.list()?;
             println!("Local notes: {}", notes.len());
         }
-        Command::Serve { ui_port } => {
-            run_serve(node, note_store, peer_id, listen_addrs, gossip_joined, ui_port).await?;
-        }
+        Command::Serve { .. } => unreachable!("handled above"),
     }
 
     Ok(())
@@ -315,7 +322,6 @@ async fn run_serve(
     note_store: store::NoteStore,
     peer_id: String,
     listen_addrs: Vec<String>,
-    mut gossip_joined: bool,
     ui_port: u16,
 ) -> Result<()> {
     use axum::{extract::Path, routing, Json, Router};
@@ -422,14 +428,25 @@ async fn run_serve(
 
     println!("Web UI running at http://127.0.0.1:{ui_port}");
 
-    // Push initial NodeStarted event
-    ui.push(MeshEvent::NodeStarted {
-        peer_id: peer_id.clone(),
-        listen_addrs,
-    })
-    .await;
+    // Give the browser a moment to connect before pushing the initial event,
+    // since broadcast channels don't replay history for late subscribers.
+    let ui_clone = ui.clone();
+    let peer_id_clone = peer_id.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        ui_clone
+            .push(MeshEvent::NodeStarted {
+                peer_id: peer_id_clone,
+                listen_addrs,
+            })
+            .await;
+    });
 
-    // Retry gossip join periodically if it failed at startup
+    // Join networks now that the UI is up
+    net::join_repl_network(&mut node).await?;
+    let mut gossip_joined = net::join_gossip(&mut node).await?;
+
+    // Retry gossip join periodically if it failed
     let mut gossip_retry_counter = 0u32;
 
     // Long-running event loop

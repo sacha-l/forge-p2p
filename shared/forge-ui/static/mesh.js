@@ -135,7 +135,10 @@
 
     ws.onopen = function () {
       setStatus("connected", "Connected");
-      advancePhase("Connected to node, waiting for events...");
+      advancePhase("Connected, waiting for node info...");
+      // Server is running — hide loading after a short pause
+      // (NodeStarted may have been sent before we connected)
+      setTimeout(hideLoading, 2000);
     };
 
     ws.onclose = function () {
