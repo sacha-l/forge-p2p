@@ -248,7 +248,51 @@ async fn main() -> Result<()> {
             }
         }
         Command::Status => {
-            println!("status: not implemented");
+            // Get network info
+            let net_info = node
+                .query_network(swarm_nl::core::AppData::GetNetworkInfo)
+                .await;
+            match net_info {
+                Ok(swarm_nl::core::AppResponse::GetNetworkInfo {
+                    peer_id,
+                    connected_peers,
+                    external_addresses,
+                }) => {
+                    println!("=== Sovereign Notes Status ===");
+                    println!("PeerId: {peer_id}");
+                    println!("Connected peers: {}", connected_peers.len());
+                    for peer in &connected_peers {
+                        println!("  - {peer}");
+                    }
+                    if !external_addresses.is_empty() {
+                        println!("External addresses:");
+                        for addr in &external_addresses {
+                            println!("  - {addr}");
+                        }
+                    }
+                }
+                _ => {
+                    println!("Could not retrieve network info");
+                }
+            }
+
+            // Get gossip info
+            let gossip_info = node
+                .query_network(swarm_nl::core::AppData::GossipsubGetInfo)
+                .await;
+            if let Ok(swarm_nl::core::AppResponse::GossipsubGetInfo {
+                topics,
+                mesh_peers,
+                ..
+            }) = gossip_info
+            {
+                println!("Subscribed topics: {}", topics.join(", "));
+                println!("Mesh peers: {}", mesh_peers.len());
+            }
+
+            // Local note count
+            let notes = note_store.list()?;
+            println!("Local notes: {}", notes.len());
         }
     }
 

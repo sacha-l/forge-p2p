@@ -5,13 +5,13 @@ created = "2026-04-12T00:00:00Z"
 
 [progress]
 total_steps = 8
-current_step = 7
+current_step = 8
 status = "in-progress"
-last_completed_step = 6
+last_completed_step = 7
 last_updated = "2026-04-12T00:00:00Z"
 
 [current_step]
-title = "Status command and polish"
+title = "Integration test with two nodes"
 attempt = 1
 files_modified = []
 
