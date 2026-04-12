@@ -77,8 +77,9 @@ async fn main() -> Result<()> {
     // Drain setup events
     net::drain_setup_events(&mut node).await;
 
-    // Join replication network
+    // Join replication network and gossip topic
     net::join_repl_network(&mut node).await?;
+    net::join_gossip(&mut node).await?;
 
     // Initialize note store
     let note_store = store::NoteStore::new(&cli.data_dir)?;
@@ -89,7 +90,7 @@ async fn main() -> Result<()> {
             let note = note_store.create(&title)?;
             println!("Created note: {} ({})", note.title, note.id);
 
-            // Replicate metadata to the network
+            // Replicate metadata and announce via gossip
             net::replicate_note_meta(
                 &mut node,
                 &note.id,
@@ -98,12 +99,13 @@ async fn main() -> Result<()> {
                 &note.updated_at.to_rfc3339(),
             )
             .await?;
+            net::announce_change(&mut node, &note.id, &note.title, note.version).await?;
         }
         Command::Edit { id, content } => {
             let note = note_store.update(&id, &content)?;
             println!("Updated note: {} (v{})", note.title, note.version);
 
-            // Replicate updated metadata
+            // Replicate updated metadata and announce via gossip
             net::replicate_note_meta(
                 &mut node,
                 &note.id,
@@ -112,6 +114,7 @@ async fn main() -> Result<()> {
                 &note.updated_at.to_rfc3339(),
             )
             .await?;
+            net::announce_change(&mut node, &note.id, &note.title, note.version).await?;
         }
         Command::Ls => {
             let notes = note_store.list()?;

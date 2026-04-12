@@ -1,12 +1,33 @@
-use anyhow::Result;
-use swarm_nl::core::replication::{ConsistencyModel, ReplNetworkConfig};
-use swarm_nl::core::{Core, NetworkEvent};
-use swarm_nl::setup::BootstrapConfig;
-use swarm_nl::core::CoreBuilder;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use swarm_nl::core::replication::{ConsistencyModel, ReplNetworkConfig};
+use swarm_nl::core::{AppData, AppResponse, Core, CoreBuilder, NetworkEvent};
+use swarm_nl::setup::BootstrapConfig;
+
 pub const REPL_NETWORK: &str = "sovereign-notes-sync";
+pub const GOSSIP_TOPIC: &str = "sovereign-notes-changes";
+
+/// A gossip announcement for a note change.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangeAnnouncement {
+    pub note_id: String,
+    pub title: String,
+    pub version: u64,
+}
+
+/// Tracks remote note versions learned from gossip announcements.
+/// Maps note_id -> (title, version, source_peer_id).
+pub type RemoteIndex = Arc<Mutex<HashMap<String, (String, u64, String)>>>;
+
+/// Create a new empty remote index.
+#[allow(dead_code)]
+pub fn new_remote_index() -> RemoteIndex {
+    Arc::new(Mutex::new(HashMap::new()))
+}
 
 /// Build and configure a sovereign-notes node with replication.
 pub async fn build_node(
@@ -72,6 +93,48 @@ pub async fn join_repl_network(node: &mut Core) -> Result<()> {
     Ok(())
 }
 
+/// Join the gossip topic for change announcements.
+pub async fn join_gossip(node: &mut Core) -> Result<()> {
+    let join_request = AppData::GossipsubJoinNetwork(GOSSIP_TOPIC.to_string());
+    match node.query_network(join_request).await {
+        Ok(AppResponse::GossipsubJoinSuccess) => {
+            println!("Joined gossip topic: {GOSSIP_TOPIC}");
+            Ok(())
+        }
+        Ok(other) => anyhow::bail!("unexpected response joining gossip: {other:?}"),
+        Err(e) => anyhow::bail!("failed to join gossip topic: {e:?}"),
+    }
+}
+
+/// Broadcast a note change announcement via gossip.
+pub async fn announce_change(
+    node: &mut Core,
+    note_id: &str,
+    title: &str,
+    version: u64,
+) -> Result<()> {
+    let announcement = ChangeAnnouncement {
+        note_id: note_id.to_string(),
+        title: title.to_string(),
+        version,
+    };
+    let json = serde_json::to_string(&announcement)?;
+    let broadcast = AppData::GossipsubBroadcastMessage {
+        topic: GOSSIP_TOPIC.to_string(),
+        message: vec![json.as_bytes().to_vec()],
+    };
+    // Broadcast may fail if no peers are in the mesh yet — that's ok for single-node usage
+    match node.query_network(broadcast).await {
+        Ok(AppResponse::GossipsubBroadcastSuccess) => {
+            println!("Announced change: {} v{}", title, version);
+        }
+        _ => {
+            println!("No peers to announce to (will sync via replication)");
+        }
+    }
+    Ok(())
+}
+
 /// Replicate note metadata to the network.
 /// Payload format: [note_id, title, version_str, updated_at_str]
 pub async fn replicate_note_meta(
@@ -93,17 +156,46 @@ pub async fn replicate_note_meta(
     Ok(())
 }
 
-/// Run the event loop, processing incoming replica data.
+/// Process a single gossip event, updating the remote index.
+pub fn handle_gossip_message(data: &[String], source: &str, remote_index: &RemoteIndex) {
+    for msg in data {
+        match serde_json::from_str::<ChangeAnnouncement>(msg) {
+            Ok(ann) => {
+                println!(
+                    "Change from {source}: '{}' v{}",
+                    ann.title, ann.version
+                );
+                let mut index = remote_index.lock().expect("remote index lock poisoned");
+                let entry = index
+                    .entry(ann.note_id.clone())
+                    .or_insert((String::new(), 0, String::new()));
+                if ann.version > entry.1 {
+                    *entry = (ann.title, ann.version, source.to_string());
+                }
+            }
+            Err(e) => {
+                println!("Failed to parse gossip message: {e}");
+            }
+        }
+    }
+}
+
+/// Run the event loop, processing gossip and replica events.
 /// This is a blocking loop — call from a spawned task.
 #[allow(dead_code)]
-pub async fn run_event_loop(node: &mut Core) {
+pub async fn run_event_loop(node: &mut Core, remote_index: &RemoteIndex) {
     loop {
-        if let Some(NetworkEvent::ReplicaDataIncoming { data, source, .. }) =
-            node.next_event().await
-        {
-            println!("Replica data from {source}: {data:?}");
+        if let Some(event) = node.next_event().await {
+            match event {
+                NetworkEvent::GossipsubIncomingMessageHandled { source, data } => {
+                    handle_gossip_message(&data, &source.to_string(), remote_index);
+                }
+                NetworkEvent::ReplicaDataIncoming { source, .. } => {
+                    println!("Replica data from {source}");
+                }
+                _ => {}
+            }
         }
-        // Consume any ready replication buffer data
         if let Some(repl_data) = node.consume_repl_data(REPL_NETWORK).await {
             println!(
                 "Replicated data (clock={}): {:?}",
