@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ForgeP2P</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div class="phase">Connecting to node...</div>
+  </div>
+
+  <div id="shell">
+    <header>
+      <h1 id="app-title">ForgeP2P</h1>
+      <div class="status">
+        <span class="dot connecting" id="status-dot"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+    </header>
+
+    <div id="app-panel">
+      <iframe id="app-iframe" src="/app/index.html"></iframe>
+    </div>
+
+    <div id="mesh-panel">
+      <h2>Mesh</h2>
+      <svg id="mesh-svg"></svg>
+    </div>
+
+    <div id="event-log">
+      <h2>Events</h2>
+      <div id="log-entries"></div>
+    </div>
+  </div>
+
+  <script src="/mesh.js"></script>
+</body>
+</html>
