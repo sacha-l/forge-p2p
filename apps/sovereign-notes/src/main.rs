@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod net;
+mod rpc;
 mod store;
 
 /// Sovereign Notes — peer-to-peer note syncing across your devices.
@@ -65,7 +66,10 @@ enum Command {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Build node with replication
+    // Initialize RPC data directory (must happen before node build)
+    rpc::init_data_dir(cli.data_dir.clone());
+
+    // Build node with replication and RPC
     let mut node = net::build_node(
         cli.tcp_port,
         cli.udp_port,

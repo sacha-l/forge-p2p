@@ -5,8 +5,13 @@ use std::time::Duration;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use swarm_nl::core::replication::{ConsistencyModel, ReplNetworkConfig};
-use swarm_nl::core::{AppData, AppResponse, Core, CoreBuilder, NetworkEvent};
+use swarm_nl::core::{AppData, AppResponse, Core, CoreBuilder, NetworkEvent, RpcConfig};
 use swarm_nl::setup::BootstrapConfig;
+
+use swarm_nl::PeerId;
+
+use crate::rpc;
+use crate::store::Note;
 
 pub const REPL_NETWORK: &str = "sovereign-notes-sync";
 pub const GOSSIP_TOPIC: &str = "sovereign-notes-changes";
@@ -56,6 +61,7 @@ pub async fn build_node(
 
     let node = CoreBuilder::with_config(config)
         .with_replication(repl_config)
+        .with_rpc(RpcConfig::Default, rpc::handle_rpc)
         .build()
         .await
         .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -177,6 +183,36 @@ pub fn handle_gossip_message(data: &[String], source: &str, remote_index: &Remot
                 println!("Failed to parse gossip message: {e}");
             }
         }
+    }
+}
+
+/// Fetch a note from a remote peer via RPC.
+#[allow(dead_code)]
+pub async fn fetch_note_via_rpc(
+    node: &mut Core,
+    peer_id: &PeerId,
+    note_id: &str,
+) -> Result<Note> {
+    let request = AppData::SendRpc {
+        keys: rpc::make_fetch_request(note_id),
+        peer: *peer_id,
+    };
+    match node.query_network(request).await {
+        Ok(AppResponse::SendRpc(response)) => {
+            if response.len() < 2 {
+                anyhow::bail!("invalid RPC response: too short");
+            }
+            let status = String::from_utf8_lossy(&response[0]);
+            if status == "OK" {
+                let note: Note = serde_json::from_slice(&response[1])?;
+                Ok(note)
+            } else {
+                let msg = String::from_utf8_lossy(&response[1]);
+                anyhow::bail!("RPC error: {msg}");
+            }
+        }
+        Ok(other) => anyhow::bail!("unexpected RPC response: {other:?}"),
+        Err(e) => anyhow::bail!("RPC request failed: {e:?}"),
     }
 }
 
