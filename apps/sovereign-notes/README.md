@@ -10,6 +10,16 @@ Notes are stored as JSON files on disk. Three SwarmNL communication patterns wor
 - **Gossip** — real-time announcements on `sovereign-notes-changes` topic when notes are created or updated
 - **RPC** — on-demand full note content transfer between peers
 
+## Install
+
+From the `apps/sovereign-notes` directory:
+
+```bash
+cargo install --path .
+```
+
+This puts `sovereign-notes` on your PATH. Alternatively, use `cargo run --` in place of `sovereign-notes` for any command below.
+
 ## CLI Commands
 
 ```bash
