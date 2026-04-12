@@ -8,57 +8,64 @@
 Every session begins with this exact sequence:
 
 ```
-1. Read CLAUDE.md                          → project context
-2. Read .forge/registry.toml               → what apps exist, their status
-3. IF resuming an app:
-     Read apps/<name>/forge-state.toml     → where you left off
-     Read apps/<name>/plan.toml            → what comes next
+1. Read CLAUDE.md                          -- project context
+2. Read .forge/registry.toml               -- what apps exist, their status
+3. Read library-feedback.md                -- known issues from previous builds
+4. IF resuming an app:
+     Read apps/<n>/forge-state.toml        -- where you left off
+     Read apps/<n>/plan.toml               -- what comes next
      Run: git status && git log --oneline -5
-4. IF starting a new app:
-     Read .forge/templates/plan.toml       → plan format
-     Read .forge/swarm-nl-reference.md     → API patterns
+5. IF starting a new app:
+     Read .forge/templates/plan.toml       -- plan format
+     Read .forge/swarm-nl-reference.md     -- API patterns
 ```
 
 Never skip steps. Never assume state from a previous session.
+
+Step 3 is mandatory. `library-feedback.md` contains verified workarounds for
+issues discovered during previous builds. Apply them proactively in your code.
+Do not rediscover the same problems.
 
 ## 2. The Execution Loop
 
 For each step in a plan:
 
 ```
-┌─────────────────────────────────────────────┐
-│  READ: forge-state.toml → current step      │
-│  READ: plan.toml → step spec                │
-├─────────────────────────────────────────────┤
-│  IMPLEMENT: write code for this step only   │
-│  (max ~100 lines of new code)               │
-├─────────────────────────────────────────────┤
-│  VALIDATE (all must pass to advance):       │
-│    1. cargo check          (compiles?)      │
-│    2. cargo clippy          (no warnings?)  │
-│    3. cargo test            (tests pass?)   │
-├─────────────────────────────────────────────┤
-│  IF ALL PASS:                               │
-│    → Update forge-state.toml                │
-│    → Update decisions.md if choices were made│
-│    → git add -A && git commit               │
-│    → Continue to next step                  │
-│                                             │
-│  IF ANY FAIL:                               │
-│    → Fix and re-validate (max 3 attempts)   │
-│    → After 3 failures:                      │
-│       - Set status = "blocked" in state     │
-│       - Log blocker details in state        │
-│       - If library issue: log in            │
-│         library-feedback.md                 │
-│       - STOP and report to user             │
-├─────────────────────────────────────────────┤
-│  IF STEP IS LAST:                           │
-│    → Run full validation suite              │
-│    → Update registry.toml status → complete │
-│    → Write/update app README.md             │
-│    → Final commit on dev branch             │
-└─────────────────────────────────────────────┘
++---------------------------------------------+
+|  READ: forge-state.toml -- current step      |
+|  READ: plan.toml -- step spec                |
++----------------------------------------------+
+|  IMPLEMENT: write code for this step only    |
+|  (max ~100 lines of new code)                |
++----------------------------------------------+
+|  VALIDATE (all must pass to advance):        |
+|    1. cargo check          (compiles?)       |
+|    2. cargo clippy          (no warnings?)   |
+|    3. cargo test            (tests pass?)    |
++----------------------------------------------+
+|  IF ALL PASS:                                |
+|    -- Update forge-state.toml                |
+|    -- Update decisions.md if choices were made|
+|    -- git add -A && git commit               |
+|    -- Continue to next step                  |
+|                                              |
+|  IF ANY FAIL:                                |
+|    -- Fix and re-validate (max 3 attempts)   |
+|    -- After 3 failures:                      |
+|       - Set status = "blocked" in state      |
+|       - Log blocker details in state         |
+|       - If library issue: log in             |
+|         library-feedback.md AND              |
+|         sync feedback to main (see sec 6)    |
+|       - STOP and report to user              |
++----------------------------------------------+
+|  IF STEP IS LAST:                            |
+|    -- Run full validation suite              |
+|    -- Update registry.toml status -- complete|
+|    -- Write/update app README.md             |
+|    -- Sync feedback to main (see sec 6)      |
+|    -- Final commit on dev branch             |
++----------------------------------------------+
 ```
 
 ## 3. State Management
@@ -103,10 +110,10 @@ last_cargo_test = "pass"
 For design decisions that matter to a human reviewer. Append-only log.
 
 ```markdown
-## Step 2 — Chose gossip over RPC for state sync
+## Step 2 -- Chose gossip over RPC for state sync
 - **Context**: Needed to broadcast game state to all peers
 - **Options**: Gossip (fan-out) vs RPC (point-to-point loop)
-- **Decision**: Gossip — fewer round trips, SwarmNL handles fan-out
+- **Decision**: Gossip -- fewer round trips, SwarmNL handles fan-out
 - **Trade-off**: No delivery guarantee per-peer
 ```
 
@@ -142,11 +149,11 @@ When asked to plan a new app:
 
 1. Generate `plan.toml` using the template at `.forge/templates/plan.toml`
 2. Each step must specify:
-   - `title` — what this step does
-   - `files` — which files are created or modified
-   - `apis` — which SwarmNL types/methods are used
-   - `test_criteria` — concrete pass/fail description
-   - `test_command` — exact command to verify (default: `cargo test`)
+   - `title` -- what this step does
+   - `files` -- which files are created or modified
+   - `apis` -- which SwarmNL types/methods are used
+   - `test_criteria` -- concrete pass/fail description
+   - `test_command` -- exact command to verify (default: `cargo test`)
 3. Steps must be ordered so each builds on the last
 4. Step 1 is ALWAYS: scaffold + basic node boots + prints PeerID
 5. Final step is ALWAYS: integration test with multiple nodes
@@ -156,19 +163,19 @@ When asked to plan a new app:
 ## 5. Branching and Commits
 
 ```
-main                         ← templates only, never app code
- └── dev/echo-gossip         ← all work for this app
- └── dev/file-index          ← all work for this app
+main                         <-- templates, reference docs, library-feedback.md
+ +-- dev/echo-gossip         <-- all work for this app
+ +-- dev/file-index          <-- all work for this app
 ```
 
 ### Commit Convention
 ```
 forge: plan echo-gossip
-forge: echo-gossip step 1 — scaffold and basic node
-forge: echo-gossip step 2 — gossip join and broadcast
-forge: echo-gossip fix — port conflict in test
-forge: echo-gossip complete — final validation
-forge: feedback — missing AppData variant docs
+forge: echo-gossip step 1 -- scaffold and basic node
+forge: echo-gossip step 2 -- gossip join and broadcast
+forge: echo-gossip fix -- port conflict in test
+forge: echo-gossip complete -- final validation
+forge: feedback -- missing AppData variant docs
 ```
 
 ### Rollback
@@ -183,10 +190,22 @@ Document the rollback in decisions.md.
 
 ## 6. Library Feedback
 
-When you encounter a SwarmNL issue, log it in `library-feedback.md`:
+`library-feedback.md` is a shared knowledge base that lives on `main` and is
+read at the start of every session. It accumulates across all app builds so the
+agent never rediscovers the same issue twice.
+
+### When to log feedback
+
+When you encounter:
+- An API that behaves differently than documented
+- A missing feature that forced a workaround
+- A bug or unexpected behavior
+- A pattern that should be in the library but isn't
+
+### Format
 
 ```markdown
-## [YYYY-MM-DD] <app> — <title>
+## [YYYY-MM-DD] <app> -- <title>
 - **Context**: What you were building
 - **Problem**: What went wrong
 - **Suggestion**: How the library could improve
@@ -196,6 +215,30 @@ When you encounter a SwarmNL issue, log it in `library-feedback.md`:
 ```
 
 Also set `is_library_issue = true` in forge-state.toml if it's a blocker.
+
+### Syncing feedback to main
+
+After logging a new entry in `library-feedback.md`, sync it to `main` so
+the next app build has access to it:
+
+```bash
+# While on dev/<app-name> branch:
+git add library-feedback.md
+git stash -- library-feedback.md       # stash just the feedback file
+git checkout main
+git stash pop                          # apply feedback to main
+git add library-feedback.md
+git commit -m "forge: feedback -- <brief description>"
+git checkout dev/<app-name>            # return to dev branch
+```
+
+Do this:
+- Immediately when logging a blocking issue
+- At app completion (final step)
+- When explicitly asked by the user
+
+If the `swarm-nl-reference.md` also needs a correction based on the finding,
+update it on `main` in the same commit.
 
 ## 7. Code Standards
 
@@ -209,10 +252,12 @@ Also set `is_library_issue = true` in forge-state.toml if it's a blocker.
 
 ## 8. What the Agent Must Never Do
 
-- Write code before reading the plan and state
+- Write code before reading the plan, state, and library-feedback.md
 - Skip validation steps (check, clippy, test)
 - Advance past a failing step
-- Modify files outside the current app's directory (except registry.toml, library-feedback.md)
-- Commit to `main`
+- Modify files outside the current app's directory (except registry.toml,
+  library-feedback.md, and swarm-nl-reference.md on main when syncing feedback)
+- Commit app code to `main`
 - Delete or overwrite another app's directory
 - Assume the library works a certain way without checking the reference doc
+  AND library-feedback.md for known issues
