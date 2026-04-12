@@ -4,6 +4,7 @@ use swarm_nl::core::{AppData, AppResponse, CoreBuilder, NetworkEvent};
 use swarm_nl::setup::BootstrapConfig;
 
 const GOSSIP_TOPIC: &str = "echo-network";
+const ECHO_PREFIX: &str = "echo: ";
 
 /// Echo Gossip — peers echo back whatever they receive on a gossip topic.
 #[derive(Parser)]
@@ -61,7 +62,22 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Event loop — listen for incoming gossip messages
+    // Broadcast a greeting
+    let greeting = format!("hello from {}", cli.tcp_port);
+    let broadcast = AppData::GossipsubBroadcastMessage {
+        topic: GOSSIP_TOPIC.to_string(),
+        message: vec![greeting.as_bytes().to_vec()],
+    };
+    match node.query_network(broadcast).await {
+        Ok(AppResponse::GossipsubBroadcastSuccess) => {
+            println!("Broadcast greeting: {greeting}");
+        }
+        other => {
+            println!("Greeting broadcast result: {other:?}");
+        }
+    }
+
+    // Event loop — listen for incoming gossip messages and echo them back
     println!("Listening for messages on '{GOSSIP_TOPIC}'...");
     loop {
         if let Some(event) = node.next_event().await {
@@ -69,6 +85,18 @@ async fn main() -> Result<()> {
                 NetworkEvent::GossipsubIncomingMessageHandled { source, data } => {
                     for msg in &data {
                         println!("[{source}] {msg}");
+
+                        // Echo back messages that don't already have the echo prefix
+                        if !msg.starts_with(ECHO_PREFIX) {
+                            let echo_msg = format!("{ECHO_PREFIX}{msg}");
+                            let echo_broadcast = AppData::GossipsubBroadcastMessage {
+                                topic: GOSSIP_TOPIC.to_string(),
+                                message: vec![echo_msg.as_bytes().to_vec()],
+                            };
+                            if let Err(e) = node.query_network(echo_broadcast).await {
+                                println!("Failed to echo: {e:?}");
+                            }
+                        }
                     }
                 }
                 NetworkEvent::GossipsubSubscribeMessageReceived { peer_id, topic } => {
