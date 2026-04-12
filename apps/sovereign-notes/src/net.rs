@@ -102,15 +102,22 @@ pub async fn join_repl_network(node: &mut Core) -> Result<()> {
 }
 
 /// Join the gossip topic for change announcements.
-pub async fn join_gossip(node: &mut Core) -> Result<()> {
+/// Returns true if join succeeded, false if it failed (non-fatal).
+pub async fn join_gossip(node: &mut Core) -> Result<bool> {
     let join_request = AppData::GossipsubJoinNetwork(GOSSIP_TOPIC.to_string());
     match node.query_network(join_request).await {
         Ok(AppResponse::GossipsubJoinSuccess) => {
             println!("Joined gossip topic: {GOSSIP_TOPIC}");
-            Ok(())
+            Ok(true)
         }
-        Ok(other) => anyhow::bail!("unexpected response joining gossip: {other:?}"),
-        Err(e) => anyhow::bail!("failed to join gossip topic: {e:?}"),
+        Ok(other) => {
+            println!("Gossip join returned unexpected response (will retry): {other:?}");
+            Ok(false)
+        }
+        Err(e) => {
+            println!("Gossip join failed (will retry): {e:?}");
+            Ok(false)
+        }
     }
 }
 

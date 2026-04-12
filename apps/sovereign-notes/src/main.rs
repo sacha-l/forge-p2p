@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
 
     // Join replication network and gossip topic
     net::join_repl_network(&mut node).await?;
-    net::join_gossip(&mut node).await?;
+    let gossip_joined = net::join_gossip(&mut node).await?;
 
     // Initialize note store
     let note_store = store::NoteStore::new(&cli.data_dir)?;
@@ -302,7 +302,7 @@ async fn main() -> Result<()> {
             println!("Local notes: {}", notes.len());
         }
         Command::Serve { ui_port } => {
-            run_serve(node, note_store, peer_id, listen_addrs, ui_port).await?;
+            run_serve(node, note_store, peer_id, listen_addrs, gossip_joined, ui_port).await?;
         }
     }
 
@@ -315,6 +315,7 @@ async fn run_serve(
     note_store: store::NoteStore,
     peer_id: String,
     listen_addrs: Vec<String>,
+    mut gossip_joined: bool,
     ui_port: u16,
 ) -> Result<()> {
     use axum::{extract::Path, routing, Json, Router};
@@ -428,8 +429,26 @@ async fn run_serve(
     })
     .await;
 
+    // Retry gossip join periodically if it failed at startup
+    let mut gossip_retry_counter = 0u32;
+
     // Long-running event loop
     loop {
+        // Retry gossip join every ~10 seconds (100 loop iterations)
+        if !gossip_joined {
+            gossip_retry_counter += 1;
+            if gossip_retry_counter >= 100 {
+                gossip_retry_counter = 0;
+                if let Ok(true) = net::join_gossip(&mut node).await {
+                    gossip_joined = true;
+                    ui.push(MeshEvent::GossipJoined {
+                        topic: net::GOSSIP_TOPIC.to_string(),
+                    })
+                    .await;
+                }
+            }
+        }
+
         if let Some(event) = node.next_event().await {
             match event {
                 swarm_nl::core::NetworkEvent::ConnectionEstablished {
