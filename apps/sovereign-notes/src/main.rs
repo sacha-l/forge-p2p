@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -61,6 +62,12 @@ enum Command {
     Sync,
     /// Show network and sync status
     Status,
+    /// Start web UI and long-running event loop
+    Serve {
+        /// Port for the web UI
+        #[arg(long, default_value_t = 8080)]
+        ui_port: u16,
+    },
 }
 
 #[tokio::main]
@@ -80,7 +87,7 @@ async fn main() -> Result<()> {
     .await?;
 
     // Drain setup events
-    net::drain_setup_events(&mut node).await;
+    let peer_id = net::drain_setup_events(&mut node).await;
 
     // Join replication network and gossip topic
     net::join_repl_network(&mut node).await?;
@@ -294,7 +301,183 @@ async fn main() -> Result<()> {
             let notes = note_store.list()?;
             println!("Local notes: {}", notes.len());
         }
+        Command::Serve { ui_port } => {
+            run_serve(node, note_store, peer_id, ui_port).await?;
+        }
     }
 
     Ok(())
+}
+
+/// Run the web UI server with a long-running event loop.
+async fn run_serve(
+    mut node: swarm_nl::core::Core,
+    note_store: store::NoteStore,
+    peer_id: String,
+    ui_port: u16,
+) -> Result<()> {
+    use axum::{extract::Path, routing, Json, Router};
+    use forge_ui::{ForgeUI, MeshEvent};
+
+    let store = Arc::new(note_store);
+
+    // Build app-specific API routes
+    let api_store = Arc::clone(&store);
+    let api_routes = Router::new()
+        .route("/api/notes", routing::get({
+            let s = Arc::clone(&api_store);
+            move || {
+                let s = Arc::clone(&s);
+                async move {
+                    match s.list() {
+                        Ok(notes) => {
+                            let items: Vec<serde_json::Value> = notes
+                                .iter()
+                                .map(|m| serde_json::json!({
+                                    "id": m.id,
+                                    "title": m.title,
+                                    "version": m.version,
+                                    "updated_at": m.updated_at.to_rfc3339(),
+                                }))
+                                .collect();
+                            Json(serde_json::json!(items))
+                        }
+                        Err(_) => Json(serde_json::json!([])),
+                    }
+                }
+            }
+        }))
+        .route("/api/notes", routing::post({
+            let s = Arc::clone(&api_store);
+            move |Json(body): Json<serde_json::Value>| {
+                let s = Arc::clone(&s);
+                async move {
+                    let title = body.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
+                    match s.create(title) {
+                        Ok(note) => Json(serde_json::json!({
+                            "id": note.id,
+                            "title": note.title,
+                            "version": note.version,
+                            "content": note.content,
+                            "updated_at": note.updated_at.to_rfc3339(),
+                        })),
+                        Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+                    }
+                }
+            }
+        }))
+        .route("/api/notes/{id}", routing::get({
+            let s = Arc::clone(&api_store);
+            move |Path(id): Path<String>| {
+                let s = Arc::clone(&s);
+                async move {
+                    match s.get(&id) {
+                        Ok(note) => Json(serde_json::json!({
+                            "id": note.id,
+                            "title": note.title,
+                            "version": note.version,
+                            "content": note.content,
+                            "updated_at": note.updated_at.to_rfc3339(),
+                        })),
+                        Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+                    }
+                }
+            }
+        }))
+        .route("/api/notes/{id}", routing::put({
+            let s = Arc::clone(&api_store);
+            move |Path(id): Path<String>, Json(body): Json<serde_json::Value>| {
+                let s = Arc::clone(&s);
+                async move {
+                    let content = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    match s.update(&id, content) {
+                        Ok(note) => Json(serde_json::json!({
+                            "id": note.id,
+                            "title": note.title,
+                            "version": note.version,
+                            "content": note.content,
+                            "updated_at": note.updated_at.to_rfc3339(),
+                        })),
+                        Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+                    }
+                }
+            }
+        }));
+
+    // Resolve the static dir relative to CWD
+    let static_dir = std::env::current_dir()
+        .unwrap_or_default()
+        .join("static");
+
+    // Start forge-ui with app routes merged in
+    let ui = ForgeUI::new()
+        .with_port(ui_port)
+        .with_app_name("Sovereign Notes")
+        .with_app_static_dir(static_dir.to_str().unwrap_or("./static"))
+        .with_routes(api_routes)
+        .start()
+        .await?;
+
+    println!("Web UI running at http://127.0.0.1:{ui_port}");
+
+    // Push initial NodeStarted event
+    ui.push(MeshEvent::NodeStarted {
+        peer_id: peer_id.clone(),
+        listen_addrs: vec![format!("/ip4/127.0.0.1/tcp/{}", 51000)],
+    })
+    .await;
+
+    // Long-running event loop
+    loop {
+        if let Some(event) = node.next_event().await {
+            match event {
+                swarm_nl::core::NetworkEvent::ConnectionEstablished {
+                    peer_id: pid,
+                    endpoint,
+                    ..
+                } => {
+                    let addr = endpoint.get_remote_address().to_string();
+                    println!("Peer connected: {pid} @ {addr}");
+                    ui.push(MeshEvent::PeerConnected {
+                        peer_id: pid.to_string(),
+                        addr,
+                    })
+                    .await;
+                }
+                swarm_nl::core::NetworkEvent::ConnectionClosed {
+                    peer_id: pid, ..
+                } => {
+                    println!("Peer disconnected: {pid}");
+                    ui.push(MeshEvent::PeerDisconnected {
+                        peer_id: pid.to_string(),
+                    })
+                    .await;
+                }
+                swarm_nl::core::NetworkEvent::GossipsubIncomingMessageHandled {
+                    source,
+                    data,
+                } => {
+                    let size: usize = data.iter().map(|s| s.len()).sum();
+                    ui.push(MeshEvent::MessageReceived {
+                        from: source.to_string(),
+                        topic: net::GOSSIP_TOPIC.to_string(),
+                        size_bytes: size,
+                    })
+                    .await;
+                }
+                swarm_nl::core::NetworkEvent::ReplicaDataIncoming {
+                    source, network, ..
+                } => {
+                    ui.push(MeshEvent::ReplicaSync {
+                        peer_id: source.to_string(),
+                        network,
+                        status: "incoming".to_string(),
+                    })
+                    .await;
+                }
+                _ => {}
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }

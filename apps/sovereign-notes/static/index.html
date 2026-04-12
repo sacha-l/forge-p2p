@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sovereign Notes</title>
+  <link rel="stylesheet" href="/app/app.css">
+</head>
+<body>
+  <div class="toolbar">
+    <button id="btn-new">+ New Note</button>
+    <button id="btn-refresh">Refresh</button>
+    <div class="sync-status">
+      <span class="dot" id="sync-dot"></span>
+      <span id="sync-text">connecting...</span>
+    </div>
+  </div>
+
+  <div id="new-note-dialog">
+    <input type="text" id="new-title" placeholder="Note title...">
+    <button id="btn-create">Create</button>
+  </div>
+
+  <h2>Notes</h2>
+  <div id="note-list">
+    <div class="empty-state">Loading notes...</div>
+  </div>
+
+  <div id="editor-section">
+    <h2>Editor</h2>
+    <div id="note-title-display"></div>
+    <textarea id="note-editor"></textarea>
+    <div class="editor-bar">
+      <span class="version" id="note-version"></span>
+      <button id="btn-save">Save</button>
+    </div>
+  </div>
+
+  <div id="status-bar"></div>
+
+  <script src="/app/app.js"></script>
+</body>
+</html>
