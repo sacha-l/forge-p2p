@@ -31,12 +31,15 @@ swarm-nl = { version = "0.2.1", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
-SwarmNL re-exports key libp2p types. You typically need:
+SwarmNL re-exports key libp2p types. The correct imports are:
 ```rust
-use swarm_nl::core::prelude::*;
 use swarm_nl::*;
 use std::collections::HashMap;
 ```
+
+> **VERIFIED (echo-gossip build):** `swarm_nl::core::prelude` is private in v0.2.1.
+> All public types are re-exported from `swarm_nl` directly.
+> Use `use swarm_nl::*;` — do NOT use `use swarm_nl::core::prelude::*;`.
 
 ## 3. Core Architecture
 
@@ -55,8 +58,20 @@ The `Core` is your node. It runs the libp2p swarm internally. You interact with 
 | `node.query_network(request)` | Send request, wait for response | `async`, returns `Result<AppResponse>` |
 | `node.send_to_network(request)` | Send request, get stream ID | `async`, returns `Result<StreamId>` |
 | `node.recv_from_network(stream_id)` | Poll for response by stream ID | `async`, returns `Result<AppResponse>` |
-| `node.next_event()` | Get next buffered network event | `async`, returns `Option<NetworkEvent>` |
+| `node.next_event()` | Get next buffered network event | `async`, returns `Option<NetworkEvent>`, **non-blocking** (returns `None` immediately if buffer empty) |
 | `node.events()` | Get iterator over all buffered events | `async`, returns iterator |
+
+> **CRITICAL (verified in echo-gossip build):** `next_event()` does NOT block.
+> It returns `None` instantly when the buffer is empty. You MUST add a small
+> `tokio::time::sleep` in your event loop to avoid busy-spinning:
+> ```rust
+> loop {
+>     if let Some(event) = node.next_event().await {
+>         // handle event
+>     }
+>     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+> }
+> ```
 
 ### AppData Enum (Requests)
 
@@ -98,7 +113,7 @@ AppData::SendRpc {
 // === Gossipsub ===
 AppData::GossipsubBroadcastMessage {
     topic: String,
-    message: Vec<String>,
+    message: Vec<Vec<u8>>,     // ByteVector, NOT Vec<String>
 }
 
 AppData::GossipsubJoinNetwork {
@@ -135,6 +150,11 @@ AppResponse::GossipsubGetInfo { topics, connected_peers }
 
 Events are buffered internally. Poll them with `next_event()` or `events()`.
 
+> **WARNING:** The variant names and field names below were derived from documentation.
+> The echo-gossip build found some names differ in actual v0.2.1 source code.
+> When in doubt, check `cargo doc --open` on your project to see the actual variants.
+> If you find a discrepancy, update this file and log it in decisions.md.
+
 ```rust
 NetworkEvent::NewListenAddr { local_peer_id, listener_id, address }
 NetworkEvent::ConnectionEstablished { peer_id, connection_id, endpoint, num_established, established_in }
@@ -168,7 +188,6 @@ NetworkEvent::IncomingForwardedData { data, source }
 The simplest SwarmNL app. Sets up a node and reads events.
 
 ```rust
-use swarm_nl::core::prelude::*;
 use swarm_nl::*;
 
 #[tokio::main]
@@ -198,6 +217,7 @@ async fn main() {
         if let Some(event) = node.next_event().await {
             // Handle events...
         }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
 ```
@@ -226,7 +246,7 @@ async fn main() {
     // Broadcast a message
     let gossip = AppData::GossipsubBroadcastMessage {
         topic: GOSSIP_TOPIC.to_string(),
-        message: vec!["hello from peer".to_string()],
+        message: vec!["hello from peer".as_bytes().to_vec()],  // ByteVector
     };
     let _ = node.query_network(gossip).await;
 
@@ -237,6 +257,7 @@ async fn main() {
                 println!("Got message from {}: {:?} on topic {}", source, data, topic);
             }
         }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
 ```
@@ -514,6 +535,8 @@ async fn test_two_nodes_communicate() {
 
 ## 8. Common Mistakes
 
+> Items marked **VERIFIED** were discovered during actual app builds.
+
 1. **Not consuming events**: The internal event buffer has a max size. If you don't poll events, you lose them. Always run an event loop.
 
 2. **Port conflicts in tests**: When running multiple nodes, use different TCP/UDP ports for each node.
@@ -525,6 +548,14 @@ async fn test_two_nodes_communicate() {
 5. **Inconsistent consistency models**: All nodes in a replica network MUST use the same `ConsistencyModel`. Mixing causes undefined behavior.
 
 6. **Blocking the event loop**: The `node` methods are async. Don't block the tokio runtime. Use `tokio::spawn` for concurrent tasks.
+
+7. **VERIFIED: Busy-spinning on `next_event()`**: `next_event()` is non-blocking and returns `None` immediately when the buffer is empty. Without a sleep in the loop, you'll burn 100% CPU. Always add `tokio::time::sleep(Duration::from_millis(100))` in your event loop.
+
+8. **VERIFIED: Gossipsub mesh formation takes ~5 seconds**: After two nodes connect via bootnodes, the gossipsub mesh is NOT immediately ready. Broadcasts sent before the mesh forms will silently fail. In tests, add a 5-second sleep after connection before broadcasting. In production, retry broadcasts or wait for `GossipsubSubscribed` events.
+
+9. **VERIFIED: Use 127.0.0.1 for local bootnode addresses**: `NewListenAddr` events may report `0.0.0.0` or other interface addresses. For local testing, always construct bootnode addresses with `127.0.0.1` explicitly, e.g. `/ip4/127.0.0.1/tcp/<port>`.
+
+10. **VERIFIED: Import from `swarm_nl::*`, not `swarm_nl::core::prelude::*`**: The `core::prelude` module is private in v0.2.1. All public types are re-exported from the crate root.
 
 ## 9. Feature Flags
 
