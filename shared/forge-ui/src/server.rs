@@ -15,12 +15,14 @@ use crate::ws::{ws_handler, WsState};
 ///
 /// Serves:
 /// - `/ws` — WebSocket endpoint for real-time mesh events
+/// - App-specific API routes (from `extra_routes`)
 /// - `/app/*` — app-specific static files (from `app_static_dir`)
 /// - `/*` — forge-ui's own static files (index.html, mesh.js, style.css)
 pub fn build_router(
     tx: broadcast::Sender<MeshEvent>,
     app_name: String,
     app_static_dir: Option<PathBuf>,
+    extra_routes: Option<Router>,
 ) -> Router {
     let ws_state = WsState { tx };
 
@@ -36,6 +38,11 @@ pub fn build_router(
             }),
         )
         .with_state(ws_state);
+
+    // Merge app-specific API routes (before static file services)
+    if let Some(extra) = extra_routes {
+        router = router.merge(extra);
+    }
 
     // Serve app-specific static files under /app/
     if let Some(dir) = app_static_dir {

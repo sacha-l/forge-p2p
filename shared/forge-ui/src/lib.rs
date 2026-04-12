@@ -62,7 +62,6 @@ impl ForgeUI {
     }
 
     /// Merge additional axum routes into the server (e.g. app-specific API endpoints).
-    /// These routes take priority over forge-ui's own routes.
     pub fn with_routes(mut self, routes: Router) -> Self {
         self.extra_routes = Some(routes);
         self
@@ -73,10 +72,12 @@ impl ForgeUI {
         let (tx, _rx) = broadcast::channel::<MeshEvent>(256);
         let handle = UiHandle { tx: tx.clone() };
 
-        let mut router = server::build_router(tx, self.app_name, self.app_static_dir);
-        if let Some(extra) = self.extra_routes {
-            router = extra.merge(router);
-        }
+        let router = server::build_router(
+            tx,
+            self.app_name,
+            self.app_static_dir,
+            self.extra_routes,
+        );
         let addr = format!("127.0.0.1:{}", self.port);
         let listener = tokio::net::TcpListener::bind(&addr).await?;
 
