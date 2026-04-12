@@ -1,0 +1,43 @@
+# ForgeP2P App Plan
+# Copy this template to apps/<app-name>/plan.toml and fill it in.
+
+[app]
+name = ""
+description = ""
+primary_pattern = ""  # "gossip" | "rpc" | "dht" | "replication" | "sharding" | combination like "gossip+rpc"
+node_count = 2        # minimum nodes for a working demo
+node_roles = "equal"  # "equal" | describe roles like "1 bootstrap + N workers"
+complexity = ""       # "simple" | "moderate" | "complex"
+
+[dependencies]
+# Beyond swarm-nl and tokio
+# crate_name = "version"
+
+[[steps]]
+number = 1
+title = "Scaffold and basic node"
+description = "Create Cargo.toml, main.rs. Boot a single node, print PeerId and listen address."
+files = ["Cargo.toml", "src/main.rs"]
+apis = ["BootstrapConfig", "CoreBuilder", "NetworkEvent::NewListenAddr"]
+test_criteria = "Node starts, consumes setup events, prints peer info, exits cleanly."
+test_command = "cargo run -- --node 1"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+# [[steps]]
+# number = 2
+# title = ""
+# description = ""
+# files = []
+# apis = []
+# test_criteria = ""
+# test_command = "cargo test"
+# validation = ["cargo check", "cargo clippy", "cargo test"]
+
+# ... continue for all steps ...
+
+# RULES:
+# - Step 1 is ALWAYS scaffold + basic node
+# - Final step is ALWAYS integration test with multiple nodes
+# - Each step should be ≤ 100 lines of new code
+# - Each step must have concrete, verifiable test_criteria
+# - APIs listed must exist in .forge/swarm-nl-reference.md

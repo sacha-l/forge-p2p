@@ -1,0 +1,30 @@
+# ForgeP2P Agent State
+# Machine-readable. The agent reads this at the start of every session.
+# The agent updates this at the end of every completed step.
+
+[app]
+name = ""
+branch = ""
+created = ""
+
+[progress]
+total_steps = 0
+current_step = 0
+status = "not-started"  # "not-started" | "in-progress" | "blocked" | "complete"
+last_completed_step = 0
+last_updated = ""
+
+[current_step]
+title = ""
+attempt = 1
+files_modified = []
+
+[blocker]
+step = 0
+description = ""
+is_library_issue = false
+
+[validation]
+last_cargo_check = "not-run"
+last_cargo_clippy = "not-run"
+last_cargo_test = "not-run"
