@@ -15,7 +15,7 @@ Notes are stored as JSON files on disk. Three SwarmNL communication patterns wor
 From the `apps/sovereign-notes` directory:
 
 ```bash
-cargo install --path .
+cargo install --path . --locked
 ```
 
 This puts `sovereign-notes` on your PATH. Alternatively, use `cargo run --` in place of `sovereign-notes` for any command below.
