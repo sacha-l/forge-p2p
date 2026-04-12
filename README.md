@@ -10,16 +10,27 @@ ForgeP2P pairs a coding agent with structured SwarmNL documentation to build, te
 
 ### Prerequisites
 - Rust toolchain (stable, edition 2021)
-- A coding agent that reads markdown/TOML instructions (e.g. Claude Code)
+- A coding agent that reads markdown/TOML instructions (e.g. Claude Code, Cursor, Aider)
+
+### Setup
+
+```bash
+# Fork on GitHub, then:
+git clone https://github.com/<your-username>/forge-p2p.git
+cd forge-p2p
+```
+
+### First Command
+
+Open the repo in your coding agent and tell it:
+
+> Read `CLAUDE.md`, then `.forge/workflow.md`, then `.forge/swarm-nl-reference.md`. Plan a new app: **\<describe your app here\>**. Present the plan for my review before writing any code.
 
 ### Usage
 
-1. Fork this repo
-2. Point your coding agent at `CLAUDE.md`
-3. Ask it to plan: *"Plan a new app: P2P chat using gossip"*
-4. Review the plan in `apps/<name>/plan.toml`
-5. Ask it to build: *"Build chat-room"* — it executes step by step with test gates
-6. Ask it to resume: *"Continue"* — it reads `forge-state.toml` and picks up where it left off
+1. Review the plan in `apps/<name>/plan.toml`
+2. Tell the agent: *"Build \<app-name\>"* — it executes step by step with test gates
+3. To resume later: *"Continue"* — it reads `forge-state.toml` and picks up where it left off
 
 ## How the Agent Works
 
@@ -30,6 +41,17 @@ UPDATE state → COMMIT → next step     LOG blocker → STOP
 ```
 
 All agent state is in `forge-state.toml` (machine-readable TOML, not prose). Plans are in `plan.toml`. Design decisions go in `decisions.md`. Library issues go in `library-feedback.md`.
+
+## Branching
+
+`main` holds only the workflow templates and reference docs — no app code. Each app is built on its own branch:
+
+```
+main
+ └─ dev/echo-gossip
+ └─ dev/file-index
+ └─ dev/your-app
+```
 
 ## Repo Structure
 
