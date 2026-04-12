@@ -1,11 +1,9 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use swarm_nl::core::{CoreBuilder, NetworkEvent};
-use swarm_nl::setup::BootstrapConfig;
 
+mod net;
 mod store;
 
 /// Sovereign Notes — peer-to-peer note syncing across your devices.
@@ -67,36 +65,20 @@ enum Command {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Build bootstrap config with optional bootnode
-    let mut config = BootstrapConfig::new()
-        .with_tcp(cli.tcp_port)
-        .with_udp(cli.udp_port);
+    // Build node with replication
+    let mut node = net::build_node(
+        cli.tcp_port,
+        cli.udp_port,
+        cli.boot_peer_id.as_deref(),
+        cli.boot_addr.as_deref(),
+    )
+    .await?;
 
-    if let (Some(peer_id), Some(addr)) = (&cli.boot_peer_id, &cli.boot_addr) {
-        let mut bootnodes = HashMap::new();
-        bootnodes.insert(peer_id.clone(), addr.clone());
-        config = config.with_bootnodes(bootnodes);
-    }
+    // Drain setup events
+    net::drain_setup_events(&mut node).await;
 
-    let mut node = CoreBuilder::with_config(config)
-        .build()
-        .await
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    // Consume setup events — print PeerId and listen addresses
-    while let Some(event) = node.next_event().await {
-        match event {
-            NetworkEvent::NewListenAddr {
-                local_peer_id,
-                address,
-                ..
-            } => {
-                println!("PeerId: {local_peer_id}");
-                println!("Listening on: {address}");
-            }
-            _ => break,
-        }
-    }
+    // Join replication network
+    net::join_repl_network(&mut node).await?;
 
     // Initialize note store
     let note_store = store::NoteStore::new(&cli.data_dir)?;
@@ -106,10 +88,30 @@ async fn main() -> Result<()> {
         Command::New { title } => {
             let note = note_store.create(&title)?;
             println!("Created note: {} ({})", note.title, note.id);
+
+            // Replicate metadata to the network
+            net::replicate_note_meta(
+                &mut node,
+                &note.id,
+                &note.title,
+                note.version,
+                &note.updated_at.to_rfc3339(),
+            )
+            .await?;
         }
         Command::Edit { id, content } => {
             let note = note_store.update(&id, &content)?;
             println!("Updated note: {} (v{})", note.title, note.version);
+
+            // Replicate updated metadata
+            net::replicate_note_meta(
+                &mut node,
+                &note.id,
+                &note.title,
+                note.version,
+                &note.updated_at.to_rfc3339(),
+            )
+            .await?;
         }
         Command::Ls => {
             let notes = note_store.list()?;
