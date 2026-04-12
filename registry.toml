@@ -5,9 +5,9 @@
 [[apps]]
 name = "echo-gossip"
 description = "Peers join a gossip topic, broadcast messages, and echo back whatever they receive"
-status = "planned"
+status = "complete"
 branch = "dev/echo-gossip"
 pattern = "gossip"
 steps_total = 5
-steps_done = 0
+steps_done = 5
 created = "2026-04-12"
