@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use axum::{
-    response::Html,
+    http::{HeaderValue, Request},
+    middleware::{self, Next},
+    response::{Html, Response},
     routing::get,
     Router,
 };
@@ -58,5 +60,17 @@ pub fn build_router(
     let ui_static = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
     router = router.fallback_service(ServeDir::new(ui_static));
 
-    router
+    // Disable browser caching — this is a dev server, stale JS/CSS causes
+    // pain when iterating on the frontend.
+    router.layer(middleware::from_fn(no_cache_headers))
+}
+
+/// Middleware that adds `Cache-Control: no-store` to every response.
+async fn no_cache_headers(req: Request<axum::body::Body>, next: Next) -> Response {
+    let mut response = next.run(req).await;
+    response.headers_mut().insert(
+        "cache-control",
+        HeaderValue::from_static("no-store, no-cache, must-revalidate"),
+    );
+    response
 }
