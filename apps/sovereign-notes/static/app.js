@@ -4,6 +4,13 @@
 (function () {
   "use strict";
 
+  // If loaded standalone (not in the forge-ui iframe), redirect to the full shell
+  // so the user sees the mesh visualizer and event log too.
+  if (window.self === window.top) {
+    window.location.replace("/");
+    return;
+  }
+
   const API = "";  // same origin
   let selectedNoteId = null;
   let peerCount = 0;
