@@ -46,7 +46,7 @@ forge-p2p/
 ├── shared/
 │   └── forge-ui/                   # Embedded web UI + mesh visualizer
 │       ├── src/                    # Axum server, WebSocket, MeshEvent
-│       └── static/                 # D3.js mesh graph, layout, styles
+│       └── static/                 # Vanilla-JS mesh graph, layout, styles
 ├── apps/
 │   └── <app-name>/
 │       ├── forge-state.toml        # Agent state (machine-readable)
@@ -69,7 +69,7 @@ Markdown memory files are fragile — an agent can misformat them, and parsing p
 
 Every app includes a built-in web dashboard powered by [`forge-ui`](shared/forge-ui/). One `cargo run` starts both the SwarmNL node and a local web UI with:
 
-- A **D3.js mesh visualizer** showing peers, connections, and message flow in real time
+- A **mesh visualizer** (dependency-free vanilla JS) showing peers, connections, and message flow in real time
 - An **event log** of network activity
 - A **split layout** — your app's custom UI on the left, the mesh graph on the right
 

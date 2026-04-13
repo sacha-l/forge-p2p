@@ -6,7 +6,7 @@ Embedded web UI and mesh visualizer for ForgeP2P apps. One `cargo run` starts bo
 
 - **Axum web server** on a configurable localhost port
 - **WebSocket push** — your app sends `MeshEvent`s, the browser renders them in real time
-- **D3.js mesh visualizer** — force-directed graph where peers are nodes and connections are edges. Edges pulse when messages flow.
+- **Mesh visualizer** — dependency-free vanilla-JS SVG. Self-node at the centre, peers in a radial layout, edges pulse when messages flow. Works offline (no CDN).
 - **Event log** — timestamped feed of network activity (connections, messages, gossip joins, etc.)
 - **Split layout** — left panel for your app's own UI, right panel for the mesh graph, bottom for the event log
 - **Loading states** — contextual messages while the node boots ("Starting node, generating keypair..." → "Listening for peers..." → active view)
@@ -110,7 +110,7 @@ shared/forge-ui/
 │   └── server.rs       # Axum routes, static file serving
 ├── static/
 │   ├── index.html      # Shell layout
-│   ├── mesh.js         # D3.js mesh visualizer
+│   ├── mesh.js         # Vanilla-JS mesh visualizer (no deps)
 │   └── style.css       # Styling
 └── tests/
     └── integration.rs  # Serialization + server + WS tests
