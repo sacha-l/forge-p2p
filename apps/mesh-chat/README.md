@@ -24,15 +24,28 @@ cargo run -- --peer al
 cargo run -- --peer bobby
 ```
 
-Open either UI:
+Open the **dual view** — both chat panels side-by-side in one window:
 
-- http://127.0.0.1:8080 — Al
-- http://127.0.0.1:8081 — Bobby
+**http://127.0.0.1:8080/app/dual.html**
 
-Within ~5–10 s, each UI's **Peers** tab (top-right) lists the other node
-under **Discovered** (source: `localhost`), auto-connects, and the mesh
-visualizer on the **Mesh** tab shows the edge. Give gossipsub another
-~5–10 s for the pub/sub mesh to form, then type in either chat panel.
+(`http://127.0.0.1:8081/app/dual.html` serves the same page; either peer
+works as the entry point.)
+
+Within ~5–10 s, forge-ui's built-in discovery finds the other node,
+auto-dials, and the gossipsub mesh forms ~5–10 s later. Once both
+panels show `chat-status: connected`, type in either side and watch it
+round-trip to the other within ~1 s.
+
+### Want peers tab, mesh graph, event log?
+
+The dual view only contains the two chat iframes. For the full forge-ui
+chrome (node identity card, Peers tab with discovered/connected lists,
+mesh visualizer, event log), open one node's root URL in a new tab:
+
+- http://127.0.0.1:8080 — Al's full UI
+- http://127.0.0.1:8081 — Bobby's full UI
+
+The dual-view header has click-through links to both.
 
 ### Cross-machine demo with mDNS
 
