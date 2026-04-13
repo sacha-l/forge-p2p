@@ -5,13 +5,13 @@ created = "2026-04-13T00:00:00Z"
 
 [progress]
 total_steps = 6
-current_step = 2
+current_step = 3
 status = "in-progress"
-last_completed_step = 1
-last_updated = "2026-04-13T00:05:00Z"
+last_completed_step = 2
+last_updated = "2026-04-13T01:00:00Z"
 
 [current_step]
-title = "Join gossip + peer-connect events"
+title = "Hardcoded ping broadcast + receive"
 attempt = 1
 files_modified = []
 

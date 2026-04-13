@@ -4,8 +4,10 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
 use forge_ui::{ForgeUI, MeshEvent};
-use swarm_nl::core::{CoreBuilder, NetworkEvent};
+use swarm_nl::core::{AppData, CoreBuilder, NetworkEvent};
 use swarm_nl::setup::BootstrapConfig;
+
+const CHAT_TOPIC: &str = "chat";
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum PeerName {
@@ -133,8 +135,23 @@ async fn main() -> Result<()> {
     })
     .await;
 
-    // Minimal event loop for step 1: drain events, push NothingYet.
-    // Real handling arrives in step 2.
+    // Join the chat gossip topic.
+    match node
+        .query_network(AppData::GossipsubJoinNetwork(CHAT_TOPIC.to_string()))
+        .await
+    {
+        Ok(_) => {
+            ui.push(MeshEvent::GossipJoined {
+                topic: CHAT_TOPIC.to_string(),
+            })
+            .await;
+            tracing::info!(topic = CHAT_TOPIC, "joined gossip topic");
+        }
+        Err(e) => {
+            tracing::warn!(?e, "failed to join gossip topic");
+        }
+    }
+
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
@@ -143,9 +160,49 @@ async fn main() -> Result<()> {
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 while let Some(event) = node.next_event().await {
-                    tracing::debug!(?event, "network event (unhandled in step 1)");
+                    handle_event(event, &ui).await;
                 }
             }
+        }
+    }
+}
+
+async fn handle_event(event: NetworkEvent, ui: &forge_ui::UiHandle) {
+    match event {
+        NetworkEvent::ConnectionEstablished {
+            peer_id, endpoint, ..
+        } => {
+            let pid = peer_id.to_string();
+            let addr = format!("{endpoint:?}");
+            tracing::info!(peer = %pid, "connection established");
+            ui.push(MeshEvent::PeerConnected {
+                peer_id: pid,
+                addr,
+            })
+            .await;
+        }
+        NetworkEvent::ConnectionClosed { peer_id, .. } => {
+            let pid = peer_id.to_string();
+            tracing::info!(peer = %pid, "connection closed");
+            ui.push(MeshEvent::PeerDisconnected { peer_id: pid }).await;
+        }
+        NetworkEvent::GossipsubSubscribeMessageReceived { peer_id, topic } => {
+            tracing::info!(peer = %peer_id, %topic, "peer subscribed to topic");
+            ui.push(MeshEvent::Custom {
+                label: "SUB".to_string(),
+                detail: format!("{peer_id} subscribed to {topic}"),
+            })
+            .await;
+        }
+        NetworkEvent::GossipsubUnsubscribeMessageReceived { peer_id, topic } => {
+            ui.push(MeshEvent::Custom {
+                label: "UNSUB".to_string(),
+                detail: format!("{peer_id} left {topic}"),
+            })
+            .await;
+        }
+        other => {
+            tracing::debug!(?other, "unhandled network event");
         }
     }
 }
