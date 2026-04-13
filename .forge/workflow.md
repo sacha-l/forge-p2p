@@ -26,6 +26,47 @@ Step 3 is mandatory. `library-feedback.md` contains verified workarounds for
 issues discovered during previous builds. Apply them proactively in your code.
 Do not rediscover the same problems.
 
+## 1a. UI Scope — what the app writes, what forge-ui provides
+
+Every P2P app built on this repo uses `shared/forge-ui` for its browser UI.
+`forge-ui` already owns a complete parent chrome around the app iframe. The
+app's iframe (`/app/index.html`) MUST contain only app-specific feature UI —
+the chat message log, the note editor, the shard browser, and so on.
+
+Do NOT, in an app, write any of the following — they already exist in the
+forge-ui chrome:
+
+- a "Connect to peer" / dial form
+- a `POST /api/peer/dial` route
+- a list of discovered or connected peers
+- a rendering of the local node's `PeerId` or listen addrs
+- peer-discovery logic (localhost scan, mDNS, etc.)
+- mesh graph visualization or event log
+
+Instead, the app:
+
+1. Creates a `tokio::sync::mpsc::channel::<forge_ui::DialRequest>(…)` at
+   startup.
+2. Passes the sender to `ForgeUI::with_dial_sender(dial_tx)`.
+3. Adds one arm to the main `tokio::select!` that receives `DialRequest`s
+   and calls `AppData::DailPeer(peer_id.parse()?, addr)` on the SwarmNL
+   `Core`.
+4. Pushes `MeshEvent::NodeStarted { peer_id, listen_addrs }` to the
+   `UiHandle` once SwarmNL reports its listen addresses, and
+   `PeerConnected` / `PeerDisconnected` / `MessageSent` / `MessageReceived`
+   as the event loop observes them. forge-ui uses these to drive the mesh
+   visualizer, the Peers tab, and the event log — no other plumbing needed.
+
+App-specific routes (e.g. `POST /api/chat/send`) are still registered via
+`ForgeUI::with_routes(Router)`. App-specific state should live behind that
+router's `with_state(Arc<AppState>)`, not inside forge-ui.
+
+The Peers tab's localhost auto-discovery is on by default. mDNS is an opt-in
+toggle in the same tab; note that `swarm-nl` v0.2.1 does NOT wire libp2p
+mDNS, so the forge-ui mDNS backend operates at the HTTP layer (advertising
+`_forge-p2p._tcp.local.` with peer_id + multiaddr TXT records) and simply
+fires a dial request when a peer is found.
+
 ## 2. The Execution Loop
 
 For each step in a plan:

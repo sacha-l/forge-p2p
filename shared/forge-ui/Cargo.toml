@@ -1,8 +1,8 @@
 [package]
 name = "forge-ui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Embedded web UI and mesh visualizer for ForgeP2P apps"
+description = "Embedded web UI, mesh visualizer, and peer discovery for ForgeP2P apps"
 
 [dependencies]
 axum = { version = "0.7", features = ["ws"] }
