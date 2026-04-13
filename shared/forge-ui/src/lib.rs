@@ -1,3 +1,4 @@
+pub mod discovery;
 pub mod events;
 pub mod server;
 pub mod state;
@@ -113,6 +114,7 @@ impl ForgeUI {
             self.app_name.clone(),
         );
         spawn_state_mirror(state.clone());
+        discovery::spawn_localhost_scan(state.clone());
 
         let router = server::build_router(state, self.app_static_dir, self.extra_routes);
         let addr = format!("127.0.0.1:{}", self.port);

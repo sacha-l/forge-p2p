@@ -173,6 +173,79 @@ async fn dial_route_delivers_to_app_sender() {
 }
 
 #[tokio::test]
+async fn localhost_discovery_finds_peer_on_adjacent_port() {
+    // Two forge-ui instances on adjacent ports should discover each other
+    // via the localhost port-scan within ~10 seconds.
+    let handle_a = ForgeUI::new()
+        .with_port(49022)
+        .with_app_name("scan-A")
+        .with_local_peer_id("12D3KooWScanA")
+        .with_discovery_port_range(49022, 49023)
+        .start()
+        .await
+        .expect("ui-a start");
+    let handle_b = ForgeUI::new()
+        .with_port(49023)
+        .with_app_name("scan-B")
+        .with_local_peer_id("12D3KooWScanB")
+        .with_discovery_port_range(49022, 49023)
+        .start()
+        .await
+        .expect("ui-b start");
+
+    // Seed listen_addrs so each side can pick a usable multiaddr when scanning.
+    handle_a
+        .push(MeshEvent::NodeStarted {
+            peer_id: "12D3KooWScanA".into(),
+            listen_addrs: vec!["/ip4/127.0.0.1/tcp/59022".into()],
+        })
+        .await;
+    handle_b
+        .push(MeshEvent::NodeStarted {
+            peer_id: "12D3KooWScanB".into(),
+            listen_addrs: vec!["/ip4/127.0.0.1/tcp/59023".into()],
+        })
+        .await;
+
+    let client = reqwest::Client::new();
+    let found = loop_until(
+        || async {
+            let a = client
+                .get("http://127.0.0.1:49022/api/peers/discovered")
+                .send()
+                .await
+                .ok()?
+                .json::<serde_json::Value>()
+                .await
+                .ok()?;
+            let b = client
+                .get("http://127.0.0.1:49023/api/peers/discovered")
+                .send()
+                .await
+                .ok()?
+                .json::<serde_json::Value>()
+                .await
+                .ok()?;
+            let a_sees_b = a["peers"]
+                .as_array()
+                .map(|v| v.iter().any(|p| p["peer_id"] == "12D3KooWScanB"))
+                .unwrap_or(false);
+            let b_sees_a = b["peers"]
+                .as_array()
+                .map(|v| v.iter().any(|p| p["peer_id"] == "12D3KooWScanA"))
+                .unwrap_or(false);
+            (a_sees_b && b_sees_a).then_some(())
+        },
+        Duration::from_secs(15),
+    )
+    .await;
+    assert!(
+        found.is_some(),
+        "both sides should discover each other within 15s"
+    );
+}
+
+#[tokio::test]
 async fn dial_route_returns_503_when_app_did_not_wire_sender() {
     let _ui = ForgeUI::new()
         .with_port(49013)
