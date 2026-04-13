@@ -1,5 +1,6 @@
-use forge_ui::{ForgeUI, MeshEvent};
+use forge_ui::{DialRequest, ForgeUI, MeshEvent};
 use futures_util::StreamExt;
+use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration};
 use tokio_tungstenite::connect_async;
 
@@ -94,4 +95,116 @@ async fn server_starts_and_accepts_ws() {
     let text = msg.to_text().expect("should be text");
     let event: MeshEvent = serde_json::from_str(text).unwrap();
     assert!(matches!(event, MeshEvent::PeerConnected { .. }));
+}
+
+#[tokio::test]
+async fn node_info_is_cached_from_node_started() {
+    let ui = ForgeUI::new()
+        .with_port(49011)
+        .with_app_name("info-test")
+        .start()
+        .await
+        .expect("start");
+
+    // No NodeStarted yet → 503.
+    let res = reqwest::get("http://127.0.0.1:49011/api/node/info")
+        .await
+        .expect("get");
+    assert_eq!(res.status(), 503);
+
+    ui.push(MeshEvent::NodeStarted {
+        peer_id: "12D3KooWInfoTest".into(),
+        listen_addrs: vec!["/ip4/127.0.0.1/tcp/49111".into()],
+    })
+    .await;
+
+    // Cache-write is async — poll briefly.
+    let body = loop_until(
+        || async {
+            let r = reqwest::get("http://127.0.0.1:49011/api/node/info")
+                .await
+                .ok()?;
+            if r.status() == 200 {
+                Some(r.json::<serde_json::Value>().await.ok()?)
+            } else {
+                None
+            }
+        },
+        Duration::from_secs(2),
+    )
+    .await
+    .expect("node_info should appear");
+
+    assert_eq!(body["peer_id"], "12D3KooWInfoTest");
+    assert_eq!(body["app_name"], "info-test");
+    assert_eq!(body["http_port"], 49011);
+    assert_eq!(body["listen_addrs"][0], "/ip4/127.0.0.1/tcp/49111");
+}
+
+#[tokio::test]
+async fn dial_route_delivers_to_app_sender() {
+    let (tx, mut rx) = mpsc::channel::<DialRequest>(4);
+    let _ui = ForgeUI::new()
+        .with_port(49012)
+        .with_app_name("dial-test")
+        .with_dial_sender(tx)
+        .start()
+        .await
+        .expect("start");
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post("http://127.0.0.1:49012/api/peer/dial")
+        .json(&serde_json::json!({
+            "peer_id": "12D3KooWDialTarget",
+            "addr": "/ip4/127.0.0.1/tcp/50000",
+        }))
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(res.status(), 202);
+
+    let req = timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("timeout")
+        .expect("sender closed");
+    assert_eq!(req.peer_id, "12D3KooWDialTarget");
+    assert_eq!(req.addr, "/ip4/127.0.0.1/tcp/50000");
+}
+
+#[tokio::test]
+async fn dial_route_returns_503_when_app_did_not_wire_sender() {
+    let _ui = ForgeUI::new()
+        .with_port(49013)
+        .with_app_name("no-dial")
+        .start()
+        .await
+        .expect("start");
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post("http://127.0.0.1:49013/api/peer/dial")
+        .json(&serde_json::json!({
+            "peer_id": "12D3KooWAny",
+            "addr": "/ip4/127.0.0.1/tcp/50000",
+        }))
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(res.status(), 503);
+}
+
+async fn loop_until<F, Fut, T>(mut f: F, total: Duration) -> Option<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Option<T>>,
+{
+    let start = std::time::Instant::now();
+    while start.elapsed() < total {
+        if let Some(v) = f().await {
+            return Some(v);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    None
 }

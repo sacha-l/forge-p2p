@@ -33,6 +33,15 @@ pub enum MeshEvent {
         network: String,
         status: String,
     },
+    /// forge-ui discovered a peer via one of its discovery backends.
+    /// `source` is "localhost" or "mdns".
+    PeerDiscovered {
+        peer_id: String,
+        addr: String,
+        source: String,
+    },
+    /// A previously discovered peer is no longer reachable via the source.
+    PeerLost { peer_id: String, source: String },
     /// App-specific custom event.
     Custom { label: String, detail: String },
 }
