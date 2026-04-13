@@ -246,6 +246,45 @@ async fn localhost_discovery_finds_peer_on_adjacent_port() {
 }
 
 #[tokio::test]
+async fn mdns_toggle_accepted() {
+    // We can't easily round-trip mDNS over localhost inside a test
+    // (multicast + daemon isn't deterministic enough), but we can verify
+    // the toggle starts the backend without error when node_info is ready.
+    let handle = ForgeUI::new()
+        .with_port(49030)
+        .with_app_name("mdns-toggle")
+        .with_local_peer_id("12D3KooWMdnsToggle")
+        .start()
+        .await
+        .expect("start");
+    handle
+        .push(MeshEvent::NodeStarted {
+            peer_id: "12D3KooWMdnsToggle".into(),
+            listen_addrs: vec!["/ip4/127.0.0.1/tcp/59030".into()],
+        })
+        .await;
+    // Let the state mirror catch the event.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post("http://127.0.0.1:49030/api/discovery/mdns")
+        .json(&serde_json::json!({ "enabled": true }))
+        .send()
+        .await
+        .expect("post enable");
+    assert_eq!(res.status(), 202, "body: {:?}", res.text().await);
+
+    let res = client
+        .post("http://127.0.0.1:49030/api/discovery/mdns")
+        .json(&serde_json::json!({ "enabled": false }))
+        .send()
+        .await
+        .expect("post disable");
+    assert_eq!(res.status(), 202);
+}
+
+#[tokio::test]
 async fn dial_route_returns_503_when_app_did_not_wire_sender() {
     let _ui = ForgeUI::new()
         .with_port(49013)

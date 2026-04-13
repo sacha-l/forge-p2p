@@ -12,6 +12,7 @@ use axum::{
 use serde::Deserialize;
 use tower_http::services::ServeDir;
 
+use crate::discovery;
 use crate::state::{DialRequest, ForgeState};
 use crate::ws::ws_handler;
 
@@ -130,13 +131,28 @@ struct MdnsToggle {
 async fn mdns_toggle_handler(
     State(state): State<Arc<ForgeState>>,
     Json(body): Json<MdnsToggle>,
-) -> StatusCode {
-    // Actual advertiser/browser wiring arrives in task A4. For now just flip the flag
-    // so the UI toggle + smoke-test traffic work end-to-end.
-    state
-        .mdns_enabled
-        .store(body.enabled, std::sync::atomic::Ordering::Relaxed);
-    StatusCode::ACCEPTED
+) -> Response {
+    if body.enabled {
+        match discovery::start_mdns(state.clone()).await {
+            Ok(()) => {
+                state
+                    .mdns_enabled
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                StatusCode::ACCEPTED.into_response()
+            }
+            Err(e) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("mdns start failed: {e}"),
+            )
+                .into_response(),
+        }
+    } else {
+        discovery::stop_mdns(state.clone()).await;
+        state
+            .mdns_enabled
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        StatusCode::ACCEPTED.into_response()
+    }
 }
 
 /// Middleware that adds `Cache-Control: no-store` to every response.

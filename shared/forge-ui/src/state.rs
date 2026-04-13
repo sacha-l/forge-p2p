@@ -12,9 +12,15 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 
 use crate::events::MeshEvent;
+
+/// Opaque handle to a running mDNS backend (advertiser + browser).
+/// Stored in `ForgeState` so the toggle route can start/stop it.
+pub struct MdnsBackend {
+    pub shutdown_tx: tokio::sync::oneshot::Sender<()>,
+}
 
 /// Snapshot of the local node's identity, surfaced via `GET /api/node/info`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -55,6 +61,8 @@ pub struct ForgeState {
     pub connected: RwLock<HashSet<String>>,
     /// Whether the mDNS discovery backend is currently advertising + browsing.
     pub mdns_enabled: AtomicBool,
+    /// Running mDNS backend handle (Some while enabled).
+    pub mdns_backend: Mutex<Option<MdnsBackend>>,
     /// Channel into the app's event loop for dial requests. `None` means dialing
     /// is disabled (the app didn't pass a sender).
     pub dial_tx: Option<mpsc::Sender<DialRequest>>,
@@ -85,6 +93,7 @@ impl ForgeState {
             discovered: RwLock::new(HashMap::new()),
             connected: RwLock::new(HashSet::new()),
             mdns_enabled: AtomicBool::new(false),
+            mdns_backend: Mutex::new(None),
             dial_tx,
             local_http_port,
             discovery_port_range,
