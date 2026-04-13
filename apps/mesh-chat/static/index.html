@@ -1,16 +1,32 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mesh-chat</title>
-    <style>
-      body { font-family: system-ui, sans-serif; margin: 16px; color: #eee; background: #1a1a1a; }
-      h2 { margin-top: 0; }
-      p { opacity: 0.7; }
-    </style>
+    <link rel="stylesheet" href="/app/chat.css" />
   </head>
   <body>
-    <h2>mesh-chat</h2>
-    <p>Chat panel placeholder. The real UI lands in step 4.</p>
+    <div id="chat-root">
+      <header class="chat-header">
+        <h2 id="chat-title">mesh-chat</h2>
+        <span id="chat-status" class="status">connecting…</span>
+      </header>
+
+      <div id="messages" aria-live="polite"></div>
+
+      <form id="compose">
+        <input
+          id="input"
+          type="text"
+          autocomplete="off"
+          placeholder="Type a message and press enter"
+          disabled
+        />
+        <button id="send" type="submit" disabled>Send</button>
+      </form>
+    </div>
+
+    <script src="/app/chat.js"></script>
   </body>
 </html>
