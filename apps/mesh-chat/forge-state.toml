@@ -4,16 +4,22 @@ branch = "dev/mesh-chat"
 created = "2026-04-13T00:00:00Z"
 
 [progress]
-total_steps = 6
-current_step = 6
+total_steps = 7
+current_step = 7
 status = "complete"
-last_completed_step = 6
-last_updated = "2026-04-13T01:20:00Z"
+last_completed_step = 7
+last_updated = "2026-04-13T01:30:00Z"
 
 [current_step]
-title = "Integration test (2-node gossip round-trip)"
+title = "Dial peers from the UI"
 attempt = 1
-files_modified = ["tests/integration.rs", "README.md"]
+files_modified = [
+    "src/main.rs",
+    "static/index.html",
+    "static/chat.js",
+    "static/chat.css",
+    "README.md",
+]
 
 [blocker]
 step = 0

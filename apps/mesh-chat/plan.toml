@@ -73,3 +73,13 @@ apis = ["BootstrapConfig", "CoreBuilder", "AppData::GossipsubJoinNetwork", "AppD
 test_criteria = "`cargo test -p mesh-chat` passes. Test completes within 30s."
 test_command = "cargo test -p mesh-chat"
 validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 7
+title = "Dial peers from the UI"
+description = "Collapsible 'Connect to peer' form in the chat panel posts {peer_id, addr} to POST /api/peer/dial. Backend validates PeerId, enqueues a Command::Dial through the existing mpsc channel, and the main loop calls AppData::DailPeer. CLI --bootnode-peer-id/--bootnode-addr become optional. Bobby's TCP port moves to 50200 to avoid a collision with a local service on 50100."
+files = ["src/main.rs", "static/index.html", "static/chat.js", "static/chat.css"]
+apis = ["AppData::DailPeer", "ForgeUI::with_routes", "PeerId::from_str"]
+test_criteria = "Start both peers with no CLI bootnode. Bobby's panel dial form dials Al; within ~10-15s the chat topic subscriptions propagate and Al->Bobby messages deliver."
+test_command = "cargo run -- --peer al"
+validation = ["cargo check", "cargo clippy", "cargo test"]

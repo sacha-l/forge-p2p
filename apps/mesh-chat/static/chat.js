@@ -10,6 +10,11 @@ const inputEl = document.getElementById("input");
 const sendEl = document.getElementById("send");
 const formEl = document.getElementById("compose");
 const titleEl = document.getElementById("chat-title");
+const dialFormEl = document.getElementById("dial-form");
+const dialPeerIdEl = document.getElementById("dial-peer-id");
+const dialAddrEl = document.getElementById("dial-addr");
+const dialBtnEl = document.getElementById("dial-btn");
+const dialStatusEl = document.getElementById("dial-status");
 
 let myName = null;
 
@@ -100,6 +105,37 @@ formEl.addEventListener("submit", async (ev) => {
     }
   } catch (e) {
     setStatus("send failed: " + e.message, "err");
+  }
+});
+
+function setDialStatus(text, cls) {
+  dialStatusEl.textContent = text;
+  dialStatusEl.className = "status" + (cls ? " " + cls : "");
+}
+
+dialFormEl.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const peer_id = dialPeerIdEl.value.trim();
+  const addr = dialAddrEl.value.trim();
+  if (!peer_id || !addr) return;
+  dialBtnEl.disabled = true;
+  setDialStatus("dialing…");
+  try {
+    const res = await fetch("/api/peer/dial", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ peer_id, addr }),
+    });
+    if (res.status === 202) {
+      setDialStatus("dispatched — watch the event log", "ok");
+    } else {
+      const body = await res.text();
+      setDialStatus(`error ${res.status}: ${body || "(no body)"}`, "err");
+    }
+  } catch (e) {
+    setDialStatus("error: " + e.message, "err");
+  } finally {
+    dialBtnEl.disabled = false;
   }
 });
 
