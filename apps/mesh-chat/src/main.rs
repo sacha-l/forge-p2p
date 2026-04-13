@@ -7,11 +7,10 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use clap::{Parser, ValueEnum};
-use forge_ui::{ForgeUI, MeshEvent, UiHandle};
+use forge_ui::{DialRequest, ForgeUI, MeshEvent, UiHandle};
 use serde::Deserialize;
 use swarm_nl::core::{AppData, Core, CoreBuilder, NetworkEvent};
 use swarm_nl::setup::BootstrapConfig;
@@ -61,7 +60,7 @@ struct Cli {
     peer: PeerName,
 
     /// Optional: PeerId of a bootnode to dial on startup.
-    /// Can also be supplied later from the browser panel.
+    /// Usually left unset — the browser UI auto-discovers and dials the other peer.
     #[arg(long)]
     bootnode_peer_id: Option<String>,
 
@@ -70,26 +69,13 @@ struct Cli {
     bootnode_addr: Option<String>,
 }
 
-/// Commands dispatched from the HTTP route handlers into the main event loop.
-#[derive(Debug)]
-enum Command {
-    Send(String),
-    Dial { peer_id: String, addr: String },
-}
-
 #[derive(Deserialize)]
 struct SendReq {
     text: String,
 }
 
-#[derive(Deserialize)]
-struct DialReq {
-    peer_id: String,
-    addr: String,
-}
-
 struct AppState {
-    tx: mpsc::Sender<Command>,
+    tx: mpsc::Sender<String>,
 }
 
 async fn send_handler(
@@ -100,29 +86,9 @@ async fn send_handler(
     if text.is_empty() {
         return StatusCode::BAD_REQUEST;
     }
-    match state.tx.send(Command::Send(text)).await {
+    match state.tx.send(text).await {
         Ok(()) => StatusCode::ACCEPTED,
         Err(_) => StatusCode::SERVICE_UNAVAILABLE,
-    }
-}
-
-async fn dial_handler(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<DialReq>,
-) -> Response {
-    let peer_id = req.peer_id.trim().to_string();
-    let addr = req.addr.trim().to_string();
-    if peer_id.is_empty() || addr.is_empty() {
-        return (StatusCode::BAD_REQUEST, "peer_id and addr are required").into_response();
-    }
-    // Validate the peer_id parses early so the browser gets a clear 400
-    // rather than a silent dispatch that later fails in the event loop.
-    if peer_id.parse::<PeerId>().is_err() {
-        return (StatusCode::BAD_REQUEST, "invalid peer_id").into_response();
-    }
-    match state.tx.send(Command::Dial { peer_id, addr }).await {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
@@ -138,8 +104,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let name = cli.peer.display().to_string();
 
-    // Optional CLI-provided bootnode. Browser-driven dialing covers the
-    // case where no CLI bootnode is supplied.
+    // Optional CLI-provided bootnode. The forge-ui peers tab can dial at any
+    // time too, so most demo runs leave these unset.
     //
     // NOTE: `with_bootnodes` takes HashMap<String, String> despite the reference
     // doc's claim of HashMap<PeerId, String>. See library-feedback.md.
@@ -188,26 +154,29 @@ async fn main() -> Result<()> {
         println!("Listen:  {a}");
     }
     println!("UI:      http://127.0.0.1:{}", cli.peer.ui_port());
-    if cli.bootnode_peer_id.is_none() {
-        println!(
-            "Tip:     no bootnode configured. Either start the other peer and paste its\n           PeerId + multiaddr into the UI 'Connect to peer' form, or pass\n           --bootnode-peer-id <PID> --bootnode-addr /ip4/127.0.0.1/tcp/<port>"
-        );
-    }
+    println!("Tip:     open the UI; the other peer should appear under 'Discovered' and auto-connect.");
 
-    // Channel fed by the HTTP route handlers, drained by the main event loop.
-    let (tx, mut rx) = mpsc::channel::<Command>(64);
-    let state = Arc::new(AppState { tx });
+    // Two channels:
+    // - `send_rx` — our own POST /api/chat/send route dispatches user-typed
+    //   chat lines here.
+    // - `dial_rx` — forge-ui dispatches DialRequests here (manual dial form
+    //   in the Peers tab, or auto-connect from discovery).
+    let (send_tx, mut send_rx) = mpsc::channel::<String>(64);
+    let (dial_tx, mut dial_rx) = mpsc::channel::<DialRequest>(64);
+
+    let app_state = Arc::new(AppState { tx: send_tx });
     let routes = Router::new()
         .route("/api/chat/send", post(send_handler))
-        .route("/api/peer/dial", post(dial_handler))
-        .with_state(state);
+        .with_state(app_state);
 
     let static_dir = format!("{}/static", env!("CARGO_MANIFEST_DIR"));
     let ui = ForgeUI::new()
         .with_port(cli.peer.ui_port())
         .with_app_name(&format!("mesh-chat :: {name}"))
         .with_app_static_dir(&static_dir)
+        .with_local_peer_id(&peer_id)
         .with_routes(routes)
+        .with_dial_sender(dial_tx)
         .start()
         .await?;
 
@@ -240,11 +209,11 @@ async fn main() -> Result<()> {
                 println!("shutting down {name}");
                 return Ok(());
             }
-            Some(cmd) = rx.recv() => {
-                match cmd {
-                    Command::Send(text) => broadcast(&mut node, &ui, &name, text).await,
-                    Command::Dial { peer_id, addr } => dial(&mut node, &ui, peer_id, addr).await,
-                }
+            Some(text) = send_rx.recv() => {
+                broadcast(&mut node, &ui, &name, text).await;
+            }
+            Some(req) = dial_rx.recv() => {
+                dial(&mut node, &ui, req.peer_id, req.addr).await;
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 while let Some(event) = node.next_event().await {
