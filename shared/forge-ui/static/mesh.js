@@ -1,5 +1,5 @@
 // ForgeP2P Mesh Visualizer
-// Connects to the forge-ui WebSocket and renders a D3 force-directed graph.
+// Vanilla JS SVG — no external dependencies, works offline.
 
 (function () {
   "use strict";
@@ -7,104 +7,113 @@
   // --- State ---
   let selfPeerId = null;
   const peers = new Map();   // peer_id -> { id, addrs }
-  const links = new Map();   // "src->dst" -> { source, target }
+  const links = new Map();   // "a->b" -> { source, target }
 
-  // --- D3 Setup ---
-  const svg = d3.select("#mesh-svg");
-  const width = () => svg.node().getBoundingClientRect().width;
-  const height = () => svg.node().getBoundingClientRect().height;
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("mesh-svg");
 
-  const g = svg.append("g");
-  let linkGroup = g.append("g").attr("class", "links");
-  let nodeGroup = g.append("g").attr("class", "nodes");
+  function svgSize() {
+    if (!svg) return { w: 0, h: 0 };
+    const r = svg.getBoundingClientRect();
+    return { w: r.width || 300, h: r.height || 300 };
+  }
 
-  const simulation = d3.forceSimulation()
-    .force("link", d3.forceLink().id(d => d.id).distance(100))
-    .force("charge", d3.forceManyBody().strength(-200))
-    .force("center", d3.forceCenter(width() / 2, height() / 2))
-    .on("tick", ticked);
+  // --- Rendering ---
 
-  simulation.stop();
+  function computePositions() {
+    const { w, h } = svgSize();
+    const cx = w / 2;
+    const cy = h / 2;
+    const radius = Math.min(w, h) / 2 - 40;
+    const positions = new Map();
 
-  function ticked() {
-    linkGroup.selectAll(".link")
-      .attr("x1", d => d.source.x)
-      .attr("y1", d => d.source.y)
-      .attr("x2", d => d.target.x)
-      .attr("y2", d => d.target.y);
+    // Self goes at center
+    if (selfPeerId && peers.has(selfPeerId)) {
+      positions.set(selfPeerId, { x: cx, y: cy });
+    }
 
-    nodeGroup.selectAll(".node")
-      .attr("transform", d => `translate(${d.x},${d.y})`);
+    // Other peers in a circle around self
+    const others = Array.from(peers.keys()).filter(id => id !== selfPeerId);
+    const n = others.length || 1;
+    others.forEach((id, i) => {
+      const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+      positions.set(id, {
+        x: cx + radius * Math.cos(angle),
+        y: cy + radius * Math.sin(angle),
+      });
+    });
+
+    return positions;
   }
 
   function updateGraph() {
-    const nodeData = Array.from(peers.values());
-    const linkData = Array.from(links.values());
+    if (!svg) return;
+    // Wipe and redraw (small graphs only — fine)
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    // Links
-    const linkSel = linkGroup.selectAll(".link").data(linkData, d => d.source.id + "->" + d.target.id);
-    linkSel.exit().remove();
-    linkSel.enter().append("line").attr("class", "link");
+    const positions = computePositions();
 
-    // Nodes
-    const nodeSel = nodeGroup.selectAll(".node").data(nodeData, d => d.id);
-    nodeSel.exit().remove();
-    const enter = nodeSel.enter().append("g")
-      .attr("class", d => d.id === selfPeerId ? "node self" : "node")
-      .call(drag(simulation));
-    enter.append("circle").attr("r", 14);
-    enter.append("text")
-      .attr("dy", 28)
-      .attr("text-anchor", "middle")
-      .text(d => shortId(d.id));
+    // Draw links first (so they sit under nodes)
+    for (const link of links.values()) {
+      const src = positions.get(link.source);
+      const dst = positions.get(link.target);
+      if (!src || !dst) continue;
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", src.x);
+      line.setAttribute("y1", src.y);
+      line.setAttribute("x2", dst.x);
+      line.setAttribute("y2", dst.y);
+      line.setAttribute("class", "link");
+      line.dataset.linkKey = link.source + "->" + link.target;
+      svg.appendChild(line);
+    }
 
-    simulation.nodes(nodeData);
-    simulation.force("link").links(linkData);
-    simulation.force("center", d3.forceCenter(width() / 2, height() / 2));
-    simulation.alpha(0.3).restart();
-  }
+    // Draw nodes
+    for (const peer of peers.values()) {
+      const pos = positions.get(peer.id);
+      if (!pos) continue;
+      const g = document.createElementNS(SVG_NS, "g");
+      g.setAttribute("class", peer.id === selfPeerId ? "node self" : "node");
+      g.setAttribute("transform", `translate(${pos.x},${pos.y})`);
 
-  function drag(sim) {
-    return d3.drag()
-      .on("start", (event, d) => {
-        if (!event.active) sim.alphaTarget(0.3).restart();
-        d.fx = d.x; d.fy = d.y;
-      })
-      .on("drag", (event, d) => {
-        d.fx = event.x; d.fy = event.y;
-      })
-      .on("end", (event, d) => {
-        if (!event.active) sim.alphaTarget(0);
-        d.fx = null; d.fy = null;
-      });
+      const circle = document.createElementNS(SVG_NS, "circle");
+      circle.setAttribute("r", 14);
+      g.appendChild(circle);
+
+      const text = document.createElementNS(SVG_NS, "text");
+      text.setAttribute("dy", 28);
+      text.setAttribute("text-anchor", "middle");
+      text.textContent = shortId(peer.id);
+      g.appendChild(text);
+
+      svg.appendChild(g);
+    }
   }
 
   function flashLink(srcId, dstId) {
-    const key = srcId + "->" + dstId;
-    linkGroup.selectAll(".link")
-      .filter(d => (d.source.id + "->" + d.target.id) === key ||
-                   (d.target.id + "->" + d.source.id) === key)
-      .classed("active", true)
-      .transition().duration(600)
-      .on("end", function () { d3.select(this).classed("active", false); });
+    if (!svg) return;
+    const keys = [srcId + "->" + dstId, dstId + "->" + srcId];
+    svg.querySelectorAll("line.link").forEach(line => {
+      if (keys.includes(line.dataset.linkKey)) {
+        line.classList.add("active");
+        setTimeout(() => line.classList.remove("active"), 600);
+      }
+    });
   }
+
+  // Re-layout on window resize
+  window.addEventListener("resize", updateGraph);
 
   // --- Loading phases ---
   const loadingEl = document.getElementById("loading");
-  const phaseEl = loadingEl.querySelector(".phase");
-  const phases = [
-    "Starting node, generating keypair...",
-    "Listening for peers...",
-    "Waiting for peer connections...",
-  ];
-  let phaseIdx = 0;
+  const phaseEl = loadingEl ? loadingEl.querySelector(".phase") : null;
 
   function advancePhase(text) {
-    phaseEl.textContent = text || phases[Math.min(++phaseIdx, phases.length - 1)];
+    if (phaseEl) phaseEl.textContent = text;
   }
 
   function hideLoading() {
-    loadingEl.classList.add("hidden");
+    if (loadingEl) loadingEl.classList.add("hidden");
   }
 
   // --- Event log ---
@@ -112,6 +121,7 @@
   const MAX_LOG = 200;
 
   function logEvent(cssClass, label, detail) {
+    if (!logEl) return;
     const el = document.createElement("div");
     el.className = "log-entry " + cssClass;
     const now = new Date().toLocaleTimeString();
@@ -125,25 +135,31 @@
   const statusText = document.getElementById("status-text");
 
   function setStatus(state, text) {
-    statusDot.className = "dot " + state;
-    statusText.textContent = text;
+    if (statusDot) statusDot.className = "dot " + state;
+    if (statusText) statusText.textContent = text;
   }
 
   function connect() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    const url = `${proto}//${location.host}/ws`;
+    console.log("[forge-ui] Connecting WebSocket:", url);
+    const ws = new WebSocket(url);
 
     ws.onopen = function () {
+      console.log("[forge-ui] WebSocket connected");
       setStatus("connected", "Connected");
-      advancePhase("Connected to node, waiting for events...");
+      advancePhase("Connected, waiting for node info...");
+      setTimeout(hideLoading, 2000);
     };
 
-    ws.onclose = function () {
+    ws.onclose = function (e) {
+      console.warn("[forge-ui] WebSocket closed:", e.code, e.reason);
       setStatus("connecting", "Reconnecting...");
       setTimeout(connect, 2000);
     };
 
-    ws.onerror = function () {
+    ws.onerror = function (e) {
+      console.error("[forge-ui] WebSocket error:", e);
       setStatus("error", "Connection error");
     };
 
@@ -162,6 +178,7 @@
         updateGraph();
         advancePhase("Listening for peers on " + (e.listen_addrs[0] || "..."));
         logEvent("node-started", "NODE", `Started ${shortId(e.peer_id)}`);
+        setTimeout(hideLoading, 1500);
         break;
 
       case "PeerConnected":
@@ -176,7 +193,6 @@
 
       case "PeerDisconnected":
         peers.delete(e.peer_id);
-        // Remove all links involving this peer
         for (const [key] of links) {
           if (key.includes(e.peer_id)) links.delete(key);
         }
@@ -218,17 +234,12 @@
   fetch("/config")
     .then(r => r.json())
     .then(cfg => {
-      document.getElementById("app-title").textContent = cfg.app_name || "ForgeP2P";
+      const title = document.getElementById("app-title");
+      if (title) title.textContent = cfg.app_name || "ForgeP2P";
       document.title = cfg.app_name || "ForgeP2P";
     })
-    .catch(() => {});
+    .catch(err => console.warn("[forge-ui] /config fetch failed:", err));
 
-  // If loading doesn't clear within 30s, hide it anyway
-  setTimeout(() => {
-    if (!loadingEl.classList.contains("hidden")) {
-      hideLoading();
-    }
-  }, 30000);
-
+  setTimeout(hideLoading, 30000);
   connect();
 })();

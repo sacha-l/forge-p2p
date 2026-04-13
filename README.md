@@ -43,13 +43,18 @@ forge-p2p/
 │   └── templates/
 │       ├── plan.toml               # Plan template
 │       └── forge-state.toml        # State template
+├── shared/
+│   └── forge-ui/                   # Embedded web UI + mesh visualizer
+│       ├── src/                    # Axum server, WebSocket, MeshEvent
+│       └── static/                 # Vanilla-JS mesh graph, layout, styles
 ├── apps/
 │   └── <app-name>/
 │       ├── forge-state.toml        # Agent state (machine-readable)
 │       ├── plan.toml               # Build plan (machine-readable)
 │       ├── decisions.md            # Design decisions (human-readable)
-│       ├── Cargo.toml
+│       ├── Cargo.toml              # depends on forge-ui via path
 │       ├── src/
+│       ├── static/                 # App-specific UI panel
 │       ├── tests/
 │       └── README.md
 ├── library-feedback.md
@@ -59,6 +64,16 @@ forge-p2p/
 ## Why TOML for State?
 
 Markdown memory files are fragile — an agent can misformat them, and parsing prose to determine "what step am I on?" is unreliable. TOML is unambiguous, trivially parseable, and hard to accidentally corrupt. The agent reads `forge-state.toml` to know exactly where it is, no interpretation needed.
+
+## forge-ui
+
+Every app includes a built-in web dashboard powered by [`forge-ui`](shared/forge-ui/). One `cargo run` starts both the SwarmNL node and a local web UI with:
+
+- A **mesh visualizer** (dependency-free vanilla JS) showing peers, connections, and message flow in real time
+- An **event log** of network activity
+- A **split layout** — your app's custom UI on the left, the mesh graph on the right
+
+Apps push `MeshEvent`s from their SwarmNL event loop, and the browser updates live over WebSocket. See [shared/forge-ui/README.md](shared/forge-ui/README.md) for integration details.
 
 ## App Ideas
 

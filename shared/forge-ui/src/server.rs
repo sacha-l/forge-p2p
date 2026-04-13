@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use axum::{
-    response::Html,
+    http::{HeaderValue, Request},
+    middleware::{self, Next},
+    response::{Html, Response},
     routing::get,
     Router,
 };
@@ -15,12 +17,14 @@ use crate::ws::{ws_handler, WsState};
 ///
 /// Serves:
 /// - `/ws` — WebSocket endpoint for real-time mesh events
+/// - App-specific API routes (from `extra_routes`)
 /// - `/app/*` — app-specific static files (from `app_static_dir`)
 /// - `/*` — forge-ui's own static files (index.html, mesh.js, style.css)
 pub fn build_router(
     tx: broadcast::Sender<MeshEvent>,
     app_name: String,
     app_static_dir: Option<PathBuf>,
+    extra_routes: Option<Router>,
 ) -> Router {
     let ws_state = WsState { tx };
 
@@ -37,6 +41,11 @@ pub fn build_router(
         )
         .with_state(ws_state);
 
+    // Merge app-specific API routes (before static file services)
+    if let Some(extra) = extra_routes {
+        router = router.merge(extra);
+    }
+
     // Serve app-specific static files under /app/
     if let Some(dir) = app_static_dir {
         router = router.nest_service("/app", ServeDir::new(dir));
@@ -51,5 +60,17 @@ pub fn build_router(
     let ui_static = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
     router = router.fallback_service(ServeDir::new(ui_static));
 
-    router
+    // Disable browser caching — this is a dev server, stale JS/CSS causes
+    // pain when iterating on the frontend.
+    router.layer(middleware::from_fn(no_cache_headers))
+}
+
+/// Middleware that adds `Cache-Control: no-store` to every response.
+async fn no_cache_headers(req: Request<axum::body::Body>, next: Next) -> Response {
+    let mut response = next.run(req).await;
+    response.headers_mut().insert(
+        "cache-control",
+        HeaderValue::from_static("no-store, no-cache, must-revalidate"),
+    );
+    response
 }

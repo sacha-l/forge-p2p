@@ -2,8 +2,8 @@
 target/
 **/*.rs.bk
 
-# Cargo lock — each app is a binary, lock files are per-branch
-Cargo.lock
+# Cargo lock — commit lock files for binary apps so installs are reproducible
+!apps/*/Cargo.lock
 
 # IDE / editor
 .vscode/
@@ -21,5 +21,3 @@ Thumbs.db
 
 # Logs
 *.log
-
-/apps
