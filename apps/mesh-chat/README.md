@@ -5,39 +5,45 @@ A two-peer gossip chat demo built on SwarmNL + forge-ui. Two named peers,
 They join a shared `"chat"` gossip topic and exchange typed messages that
 are rendered in a chat panel alongside the live mesh visualizer.
 
-## Run
+## Quickstart
 
-Two terminals, from this directory. No CLI bootnode is required — peers
-dial each other through the browser UI.
+Each peer is one command. No CLI bootnode, no copy-paste between
+terminals — nodes are wired up from the browser.
 
-Terminal 1 — Al:
+From this directory, in two terminals:
 
 ```bash
+# Terminal 1
 cargo run -- --peer al
 ```
 
-Terminal 2 — Bobby:
-
 ```bash
+# Terminal 2
 cargo run -- --peer bobby
 ```
 
-Both processes print their own `PeerId` and listen addrs on startup.
-Then open:
+Then open each node's UI:
 
-- http://127.0.0.1:8080 — Al's UI
-- http://127.0.0.1:8081 — Bobby's UI
+- http://127.0.0.1:8080 — Al
+- http://127.0.0.1:8081 — Bobby
 
-On either UI, expand the **Connect to peer** panel at the top of the
-chat column and paste the *other* node's `PeerId` and a loopback
-multiaddr (e.g. `/ip4/127.0.0.1/tcp/50000` for Al, `…/50200` for Bobby),
-then click **Connect**. Within ~10–15 s the gossip mesh will form; after
-that, typed messages should round-trip within ~1 s and the mesh
-visualizer on the right will animate on each broadcast.
+**Connect the peers from the UI.** In Bobby's tab, expand the
+**Connect to peer** panel at the top of the chat column and fill in:
 
-### Alternative: dial via CLI
+- **PeerId** — copy Al's `PeerId` from Terminal 1's startup output
+- **Multiaddr** — `/ip4/127.0.0.1/tcp/50000`
 
-If you'd rather skip the UI step, pass the bootnode on the command line:
+Click **Connect**. You should see `DIAL` / `CONNECT` / `SUB` entries
+appear in the event log on the right, and Al's node appear in the mesh
+visualizer. Give gossipsub ~10–15 s to form the mesh, then type a
+message in either chat panel — it round-trips within ~1 s.
+
+To connect the other direction, do the same from Al's tab using Bobby's
+`PeerId` and `/ip4/127.0.0.1/tcp/50200`.
+
+### Optional: dial via CLI instead of UI
+
+If you want to skip the browser dial step (e.g. scripted runs):
 
 ```bash
 cargo run -- --peer bobby \
