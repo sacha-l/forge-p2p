@@ -33,16 +33,30 @@ function appendMessage(from, text) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-// Pull the app name from /config so we can identify "my" messages vs. theirs.
-fetch("/config")
-  .then((r) => r.json())
-  .then((cfg) => {
+async function loadConfig() {
+  try {
+    const cfg = await fetch("/config").then((r) => r.json());
     titleEl.textContent = cfg.app_name || "mesh-chat";
     // app_name format: "mesh-chat :: Al"
     const m = /::\s*(.+)$/.exec(cfg.app_name || "");
     if (m) myName = m[1].trim();
-  })
-  .catch(() => {});
+  } catch {
+    /* best effort */
+  }
+}
+
+async function loadHistory() {
+  try {
+    const res = await fetch("/api/chat/history");
+    if (!res.ok) return;
+    const body = await res.json();
+    for (const line of body.messages || []) {
+      appendMessage(line.from, line.text);
+    }
+  } catch {
+    /* best effort */
+  }
+}
 
 function connect() {
   const url = `ws://${location.host}/ws`;
@@ -103,4 +117,10 @@ formEl.addEventListener("submit", async (ev) => {
   }
 });
 
-connect();
+// Load config → load history → open WS, in that order so "mine" styling
+// applies to replayed lines and no live messages are missed by late handlers.
+(async () => {
+  await loadConfig();
+  await loadHistory();
+  connect();
+})();

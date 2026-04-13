@@ -1,8 +1,14 @@
+use std::collections::VecDeque;
+use std::sync::Arc;
+
 use forge_ui::{MeshEvent, UiHandle};
 use serde::{Deserialize, Serialize};
 use swarm_nl::core::NetworkEvent;
+use tokio::sync::Mutex;
 
 pub const CHAT_TOPIC: &str = "chat";
+/// Maximum number of chat lines retained for WS-reconnect replay.
+pub const HISTORY_LIMIT: usize = 50;
 
 /// One chat line sent over the gossip topic.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,8 +24,24 @@ impl ChatLine {
     }
 }
 
+/// Ring buffer of the most recent `HISTORY_LIMIT` chat lines. Shared between
+/// the broadcast path, the receive path, and `GET /api/chat/history`.
+pub type History = Arc<Mutex<VecDeque<ChatLine>>>;
+
+pub fn new_history() -> History {
+    Arc::new(Mutex::new(VecDeque::with_capacity(HISTORY_LIMIT)))
+}
+
+pub async fn record(history: &History, line: ChatLine) {
+    let mut h = history.lock().await;
+    if h.len() >= HISTORY_LIMIT {
+        h.pop_front();
+    }
+    h.push_back(line);
+}
+
 /// Translate one SwarmNL event into forge-ui events.
-pub async fn handle_event(event: NetworkEvent, ui: &UiHandle) {
+pub async fn handle_event(event: NetworkEvent, ui: &UiHandle, history: &History) {
     match event {
         NetworkEvent::ConnectionEstablished {
             peer_id, endpoint, ..
@@ -60,6 +82,7 @@ pub async fn handle_event(event: NetworkEvent, ui: &UiHandle) {
                 text: raw,
             });
             tracing::info!(from = %line.from, text = %line.text, "incoming chat");
+            record(history, line.clone()).await;
             ui.push(MeshEvent::MessageReceived {
                 from: source.to_string(),
                 topic: CHAT_TOPIC.to_string(),

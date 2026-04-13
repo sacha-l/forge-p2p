@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::{Parser, ValueEnum};
 use forge_ui::{DialRequest, ForgeUI, MeshEvent, UiHandle};
@@ -17,7 +17,7 @@ use swarm_nl::setup::BootstrapConfig;
 use swarm_nl::PeerId;
 use tokio::sync::mpsc;
 
-use crate::chat::{handle_event, ChatLine, CHAT_TOPIC};
+use crate::chat::{handle_event, new_history, record, ChatLine, History, CHAT_TOPIC};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum PeerName {
@@ -76,6 +76,7 @@ struct SendReq {
 
 struct AppState {
     tx: mpsc::Sender<String>,
+    history: History,
 }
 
 async fn send_handler(
@@ -90,6 +91,12 @@ async fn send_handler(
         Ok(()) => StatusCode::ACCEPTED,
         Err(_) => StatusCode::SERVICE_UNAVAILABLE,
     }
+}
+
+async fn history_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let h = state.history.lock().await;
+    let messages: Vec<_> = h.iter().cloned().collect();
+    Json(serde_json::json!({ "messages": messages }))
 }
 
 #[tokio::main]
@@ -164,9 +171,14 @@ async fn main() -> Result<()> {
     let (send_tx, mut send_rx) = mpsc::channel::<String>(64);
     let (dial_tx, mut dial_rx) = mpsc::channel::<DialRequest>(64);
 
-    let app_state = Arc::new(AppState { tx: send_tx });
+    let history = new_history();
+    let app_state = Arc::new(AppState {
+        tx: send_tx,
+        history: history.clone(),
+    });
     let routes = Router::new()
         .route("/api/chat/send", post(send_handler))
+        .route("/api/chat/history", get(history_handler))
         .with_state(app_state);
 
     let static_dir = format!("{}/static", env!("CARGO_MANIFEST_DIR"));
@@ -210,27 +222,36 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
             Some(text) = send_rx.recv() => {
-                broadcast(&mut node, &ui, &name, text).await;
+                broadcast(&mut node, &ui, &history, &name, text).await;
             }
             Some(req) = dial_rx.recv() => {
                 dial(&mut node, &ui, req.peer_id, req.addr).await;
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 while let Some(event) = node.next_event().await {
-                    handle_event(event, &ui).await;
+                    handle_event(event, &ui, &history).await;
                 }
             }
         }
     }
 }
 
-async fn broadcast(node: &mut Core, ui: &UiHandle, name: &str, text: String) {
+async fn broadcast(
+    node: &mut Core,
+    ui: &UiHandle,
+    history: &History,
+    name: &str,
+    text: String,
+) {
     let line = ChatLine {
         from: name.to_string(),
         text,
     };
     let bytes = line.encode();
     let size = bytes.len();
+    // Record locally first so the user sees their own line even if the
+    // broadcast fails (e.g. no peers yet, gossipsub mesh not formed).
+    record(history, line.clone()).await;
     let req = AppData::GossipsubBroadcastMessage {
         topic: CHAT_TOPIC.to_string(),
         message: vec![bytes],
@@ -252,6 +273,13 @@ async fn broadcast(node: &mut Core, ui: &UiHandle, name: &str, text: String) {
         }
         Err(e) => {
             tracing::warn!(?e, "broadcast failed");
+            // Still surface the typed line in the local chat panel so the user
+            // sees their own message, and label the error for the event log.
+            ui.push(MeshEvent::Custom {
+                label: "CHAT".to_string(),
+                detail: format!("{}: {}", line.from, line.text),
+            })
+            .await;
             ui.push(MeshEvent::Custom {
                 label: "ERROR".to_string(),
                 detail: format!("broadcast failed: {e:?}"),
