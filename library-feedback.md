@@ -75,6 +75,15 @@
 - **Workaround**: Use a module-level `OnceLock<PathBuf>` (or similar global) set before `CoreBuilder::...build()` runs. Means you can't run two nodes with different data dirs in one process.
 - **Severity**: nice-to-have
 
+## [2026-04-13] mesh-chat — `BootstrapConfig::with_bootnodes` takes `HashMap<String, String>`, not `HashMap<PeerId, String>`
+
+- **Context**: Configuring Bobby to dial Al by peer id + multiaddr.
+- **Problem**: Reference doc (and the `test_two_nodes_communicate` pattern) shows `HashMap<PeerId, String>`. Actual signature in `swarm-nl-0.2.1/src/setup.rs:58` is `pub fn with_bootnodes(mut self, boot_nodes: Nodes)` where `Nodes = HashMap<String, String>`. Passing a `HashMap<PeerId, String>` is a type error.
+- **Suggestion**: Either change the signature to accept `HashMap<PeerId, String>` (avoids stringly-typed peer ids) or update docs to reflect the current type.
+- **Workaround**: `let mut bootnodes: HashMap<String, String> = HashMap::new(); bootnodes.insert(peer_id_string, multiaddr_string);`.
+- **Severity**: important
+- **Relevant API**: `BootstrapConfig::with_bootnodes`, `setup::Nodes`
+
 ## [2026-04-12] sovereign-notes — `RpcIncomingMessageHandled` omits the requesting peer
 
 - **Context**: Writing an RPC handler that wants to log or respond based on the sender.

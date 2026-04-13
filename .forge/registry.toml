@@ -2,12 +2,12 @@
 # Catalog of all apps built in this repo.
 # The agent updates this when planning or completing an app.
 
-# [[apps]]
-# name = "echo-gossip"
-# description = "Peers echo gossip messages back to the network"
-# status = "complete"
-# branch = "dev/echo-gossip"
-# pattern = "gossip"
-# steps_total = 5
-# steps_done = 5
-# created = "2026-04-12"
+[[apps]]
+name = "mesh-chat"
+description = "Two-peer gossip chat between Al and Bobby, visualized in forge-ui"
+status = "in-progress"
+branch = "dev/mesh-chat"
+pattern = "gossip"
+steps_total = 6
+steps_done = 1
+created = "2026-04-13"

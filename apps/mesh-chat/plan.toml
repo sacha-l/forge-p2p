@@ -1,0 +1,75 @@
+[app]
+name = "mesh-chat"
+description = "Two-peer gossip chat between peers Al and Bobby, visualized in forge-ui"
+primary_pattern = "gossip"
+node_count = 2
+node_roles = "1 bootstrap (Al) + 1 peer (Bobby)"
+complexity = "simple"
+
+[dependencies]
+clap = "4"
+axum = "0.7"
+serde = "1"
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[[steps]]
+number = 1
+title = "Scaffold and basic node"
+description = "Cargo.toml, main.rs, CLI (--peer al|bobby, --bootnode-peer-id, --bootnode-addr). Boot a SwarmNL node on fixed ports, print PeerId + listen addrs, start ForgeUI, push NodeStarted. Placeholder static/index.html."
+files = ["Cargo.toml", "src/main.rs", "static/index.html"]
+apis = ["BootstrapConfig", "CoreBuilder", "NetworkEvent::NewListenAddr", "ForgeUI", "MeshEvent::NodeStarted"]
+test_criteria = "`cargo run -- --peer al` prints PeerId, listen addrs, and a URL. Opening http://127.0.0.1:8080 shows the forge-ui layout with the placeholder panel. Ctrl-C exits cleanly."
+test_command = "cargo run -- --peer al"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 2
+title = "Join gossip + peer-connect events"
+description = "Call AppData::GossipsubJoinNetwork(\"chat\") on boot, push GossipJoined. Map ConnectionEstablished -> PeerConnected, GossipsubSubscribeMessageReceived -> Custom{label:\"SUB\"}."
+files = ["src/main.rs"]
+apis = ["AppData::GossipsubJoinNetwork", "NetworkEvent::ConnectionEstablished", "NetworkEvent::GossipsubSubscribeMessageReceived", "MeshEvent::GossipJoined", "MeshEvent::PeerConnected"]
+test_criteria = "Run `al` then `bobby` (with Al's PeerId as bootnode). Both mesh visualizers draw the other peer within ~10s; event log shows GossipJoined + PeerConnected."
+test_command = "cargo run -- --peer al"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 3
+title = "Hardcoded ping broadcast + receive"
+description = "Every 3s broadcast JSON {from, text:\"ping\"} via AppData::GossipsubBroadcastMessage. Handle GossipsubIncomingMessageHandled -> MessageReceived + Custom{label:\"CHAT\"}."
+files = ["src/main.rs", "src/chat.rs"]
+apis = ["AppData::GossipsubBroadcastMessage", "NetworkEvent::GossipsubIncomingMessageHandled", "MeshEvent::MessageSent", "MeshEvent::MessageReceived", "MeshEvent::Custom"]
+test_criteria = "With both nodes running, the event log on each UI shows alternating pings from the other peer."
+test_command = "cargo run -- --peer al"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 4
+title = "Chat panel UI"
+description = "Replace static/index.html with scrolling message list + text input + send button. chat.js connects to /ws, filters Custom{label:\"CHAT\"} events, renders '<from>: <text>'."
+files = ["static/index.html", "static/chat.js", "static/chat.css"]
+apis = []
+test_criteria = "Open http://127.0.0.1:8080 and :8081 — both panels show the hardcoded pings from step 3."
+test_command = "cargo run -- --peer al"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 5
+title = "User-typed send via POST /api/chat/send"
+description = "Remove 3s ping timer. tokio::sync::mpsc + Arc<AppState>. Register POST /api/chat/send via ForgeUI::with_routes. chat.js POSTs on submit. tokio::select! main loop dispatches broadcasts + pushes MessageSent + Custom echo."
+files = ["src/main.rs", "src/chat.rs", "static/chat.js"]
+apis = ["ForgeUI::with_routes", "tokio::sync::mpsc", "axum::Router", "axum::extract::State"]
+test_criteria = "Type in Al's panel -> line appears in Bobby's panel within ~1s, and vice versa. Mesh edge animates on each send."
+test_command = "cargo run -- --peer al"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 6
+title = "Integration test (2-node gossip round-trip)"
+description = "tests/integration.rs: spawn two nodes in-process on ports 49000 and 49100, join \"chat\", sleep 5s, node 1 broadcasts a known payload, poll node 2's events with a 30s timeout, assert it decoded the JSON body."
+files = ["tests/integration.rs"]
+apis = ["BootstrapConfig", "CoreBuilder", "AppData::GossipsubJoinNetwork", "AppData::GossipsubBroadcastMessage", "NetworkEvent::GossipsubIncomingMessageHandled"]
+test_criteria = "`cargo test -p mesh-chat` passes. Test completes within 30s."
+test_command = "cargo test -p mesh-chat"
+validation = ["cargo check", "cargo clippy", "cargo test"]
