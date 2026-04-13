@@ -7,6 +7,7 @@
 :root {
   --bg: #0f1117;
   --surface: #181a20;
+  --surface-2: #1d1f27;
   --border: #2a2d35;
   --text: #e0e0e0;
   --text-dim: #888;
@@ -26,12 +27,14 @@ body {
 
 #shell {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 380px;
   grid-template-rows: auto 1fr auto;
   height: 100vh;
   gap: 1px;
   background: var(--border);
 }
+
+/* --- Header + Node card --- */
 
 header {
   grid-column: 1 / -1;
@@ -39,18 +42,64 @@ header {
   padding: 10px 16px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 header h1 {
   font-size: 14px;
   font-weight: 600;
   color: var(--accent);
+  flex-shrink: 0;
+}
+
+#node-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+#node-card .node-label {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+#node-card code {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+
+#node-card code:hover {
+  background: var(--border);
+}
+
+#node-card code.copied {
+  background: var(--green);
+  color: #000;
 }
 
 header .status {
   font-size: 12px;
   color: var(--text-dim);
+  margin-left: auto;
 }
 
 header .status .dot {
@@ -66,6 +115,8 @@ header .dot.connecting { background: var(--orange); }
 header .dot.connected  { background: var(--green); }
 header .dot.error      { background: var(--red); }
 
+/* --- App panel --- */
+
 #app-panel {
   background: var(--surface);
   overflow: auto;
@@ -79,33 +130,295 @@ header .dot.error      { background: var(--red); }
   background: var(--surface);
 }
 
-#app-panel .no-app {
-  padding: 24px;
-  color: var(--text-dim);
-  font-size: 13px;
-}
+/* --- Right panel with tabs --- */
 
-#mesh-panel {
+#right-panel {
   background: var(--surface);
-  position: relative;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
-#mesh-panel h2 {
-  position: absolute;
-  top: 8px;
-  left: 12px;
+#tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font: inherit;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-dim);
-  z-index: 1;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
 }
+
+.tab:hover { color: var(--text); }
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-content {
+  display: none;
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  min-height: 0;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* --- Mesh SVG (unchanged) --- */
 
 #mesh-svg {
   width: 100%;
   height: 100%;
 }
+
+.node circle {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: var(--surface);
+  cursor: pointer;
+}
+
+.node.self circle {
+  fill: var(--accent);
+}
+
+.node text {
+  font-size: 10px;
+  fill: var(--text-dim);
+}
+
+.link {
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.link.active {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  animation: pulse 0.6s ease-out;
+}
+
+@keyframes pulse {
+  0%   { stroke-opacity: 1; stroke-width: 4; }
+  100% { stroke-opacity: 0.6; stroke-width: 1.5; }
+}
+
+/* --- Peers tab --- */
+
+#tab-peers {
+  padding: 12px 14px 20px;
+}
+
+.peers-section {
+  margin-bottom: 18px;
+}
+
+.peers-section h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.peers-section h3 .count {
+  background: var(--border);
+  color: var(--text);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.peer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.peer-list.empty {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.peer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.peer-row .info {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.peer-row .pid {
+  display: block;
+  color: var(--text);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.peer-row .addr {
+  display: block;
+  color: var(--text-dim);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.peer-row .source-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-right: 4px;
+}
+
+.peer-row .source-badge.localhost { color: var(--accent); border-color: var(--accent); }
+.peer-row .source-badge.mdns      { color: var(--orange); border-color: var(--orange); }
+
+.peer-row button {
+  padding: 4px 10px;
+  background: var(--accent);
+  border: 0;
+  border-radius: 3px;
+  color: #0a0a0a;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.peer-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Manual dial form */
+
+#manual-dial-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#manual-dial-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+#manual-dial-form .field-label {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+#manual-dial-form input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+#manual-dial-form input:focus {
+  outline: 1px solid var(--accent);
+}
+
+#manual-dial-form .form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+#manual-dial-btn {
+  padding: 6px 14px;
+  background: var(--accent);
+  border: 0;
+  border-radius: 4px;
+  color: #0a0a0a;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#manual-dial-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status-line {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.status-line.ok  { color: var(--green); }
+.status-line.err { color: var(--red); }
+
+/* Toggle checkboxes */
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: var(--accent);
+}
+
+.peers-section .hint {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* --- Event log --- */
 
 #event-log {
   grid-column: 1 / -1;
@@ -142,15 +455,18 @@ header .dot.error      { background: var(--red); }
   margin-right: 6px;
 }
 
-.log-entry.peer-connected .label  { color: var(--green); }
-.log-entry.peer-disconnected .label { color: var(--red); }
-.log-entry.message-sent .label    { color: var(--accent); }
-.log-entry.message-received .label { color: var(--orange); }
-.log-entry.gossip-joined .label   { color: var(--accent); }
-.log-entry.node-started .label    { color: var(--green); }
-.log-entry.custom .label          { color: var(--text); }
+.log-entry.peer-connected .label     { color: var(--green); }
+.log-entry.peer-disconnected .label  { color: var(--red); }
+.log-entry.message-sent .label       { color: var(--accent); }
+.log-entry.message-received .label   { color: var(--orange); }
+.log-entry.gossip-joined .label      { color: var(--accent); }
+.log-entry.node-started .label       { color: var(--green); }
+.log-entry.peer-discovered .label    { color: var(--accent); }
+.log-entry.peer-lost .label          { color: var(--text-dim); }
+.log-entry.custom .label             { color: var(--text); }
 
-/* Loading overlay */
+/* --- Loading overlay --- */
+
 #loading {
   position: fixed;
   inset: 0;
@@ -187,37 +503,4 @@ header .dot.error      { background: var(--red); }
   color: var(--text-dim);
   text-align: center;
   max-width: 320px;
-}
-
-/* D3 graph styles */
-.node circle {
-  stroke: var(--accent);
-  stroke-width: 2;
-  fill: var(--surface);
-  cursor: pointer;
-}
-
-.node.self circle {
-  fill: var(--accent);
-}
-
-.node text {
-  font-size: 10px;
-  fill: var(--text-dim);
-}
-
-.link {
-  stroke: var(--border);
-  stroke-width: 1.5;
-}
-
-.link.active {
-  stroke: var(--accent);
-  stroke-width: 2.5;
-  animation: pulse 0.6s ease-out;
-}
-
-@keyframes pulse {
-  0%   { stroke-opacity: 1; stroke-width: 4; }
-  100% { stroke-opacity: 0.6; stroke-width: 1.5; }
 }
