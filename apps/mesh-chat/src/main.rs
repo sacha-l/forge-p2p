@@ -1,21 +1,22 @@
 mod chat;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::routing::post;
+use axum::{Json, Router};
 use clap::{Parser, ValueEnum};
 use forge_ui::{ForgeUI, MeshEvent};
+use serde::Deserialize;
 use swarm_nl::core::{AppData, CoreBuilder, NetworkEvent};
 use swarm_nl::setup::BootstrapConfig;
+use tokio::sync::mpsc;
 
 use crate::chat::{handle_event, ChatLine, CHAT_TOPIC};
-
-/// Delay before the first broadcast — gossipsub mesh takes ~5s to form
-/// (see library-feedback.md).
-const MESH_WARMUP: Duration = Duration::from_secs(5);
-/// Interval between hardcoded ping broadcasts (step 3 only; removed in step 5).
-const PING_INTERVAL: Duration = Duration::from_secs(3);
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum PeerName {
@@ -64,6 +65,29 @@ struct Cli {
     /// Multiaddr of the bootnode, e.g. /ip4/127.0.0.1/tcp/50000.
     #[arg(long, default_value = "/ip4/127.0.0.1/tcp/50000")]
     bootnode_addr: String,
+}
+
+#[derive(Deserialize)]
+struct SendReq {
+    text: String,
+}
+
+struct AppState {
+    tx: mpsc::Sender<String>,
+}
+
+async fn send_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SendReq>,
+) -> StatusCode {
+    let text = req.text.trim().to_string();
+    if text.is_empty() {
+        return StatusCode::BAD_REQUEST;
+    }
+    match state.tx.send(text).await {
+        Ok(()) => StatusCode::ACCEPTED,
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+    }
 }
 
 #[tokio::main]
@@ -129,11 +153,19 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Channel fed by the HTTP POST handler, drained by the main event loop.
+    let (tx, mut rx) = mpsc::channel::<String>(64);
+    let state = Arc::new(AppState { tx });
+    let routes = Router::new()
+        .route("/api/chat/send", post(send_handler))
+        .with_state(state);
+
     let static_dir = format!("{}/static", env!("CARGO_MANIFEST_DIR"));
     let ui = ForgeUI::new()
         .with_port(cli.peer.ui_port())
         .with_app_name(&format!("mesh-chat :: {name}"))
         .with_app_static_dir(&static_dir)
+        .with_routes(routes)
         .start()
         .await?;
 
@@ -160,23 +192,14 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Wait for the gossipsub mesh to form before the first broadcast.
-    let start_broadcasting_at = tokio::time::Instant::now() + MESH_WARMUP;
-    let mut ping_ticker = tokio::time::interval_at(start_broadcasting_at, PING_INTERVAL);
-    let mut ping_counter: u32 = 0;
-
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 println!("shutting down {name}");
                 return Ok(());
             }
-            _ = ping_ticker.tick() => {
-                ping_counter += 1;
-                let line = ChatLine {
-                    from: name.clone(),
-                    text: format!("ping #{ping_counter}"),
-                };
+            Some(text) = rx.recv() => {
+                let line = ChatLine { from: name.clone(), text };
                 let bytes = line.encode();
                 let size = bytes.len();
                 let req = AppData::GossipsubBroadcastMessage {
@@ -199,7 +222,12 @@ async fn main() -> Result<()> {
                         tracing::info!(text = %line.text, "broadcast ok");
                     }
                     Err(e) => {
-                        tracing::warn!(?e, "broadcast failed (mesh may still be forming)");
+                        tracing::warn!(?e, "broadcast failed");
+                        ui.push(MeshEvent::Custom {
+                            label: "ERROR".to_string(),
+                            detail: format!("broadcast failed: {e:?}"),
+                        })
+                        .await;
                     }
                 }
             }

@@ -5,13 +5,13 @@ created = "2026-04-13T00:00:00Z"
 
 [progress]
 total_steps = 6
-current_step = 5
+current_step = 6
 status = "in-progress"
-last_completed_step = 4
-last_updated = "2026-04-13T01:10:00Z"
+last_completed_step = 5
+last_updated = "2026-04-13T01:15:00Z"
 
 [current_step]
-title = "User-typed send via POST /api/chat/send"
+title = "Integration test (2-node gossip round-trip)"
 attempt = 1
 files_modified = []
 

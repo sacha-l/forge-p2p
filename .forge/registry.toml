@@ -9,5 +9,5 @@ status = "in-progress"
 branch = "dev/mesh-chat"
 pattern = "gossip"
 steps_total = 6
-steps_done = 4
+steps_done = 5
 created = "2026-04-13"
