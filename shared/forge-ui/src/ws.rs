@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -8,23 +10,31 @@ use axum::{
 use tokio::sync::broadcast;
 
 use crate::events::MeshEvent;
-
-/// Shared state for the WebSocket broadcast channel.
-#[derive(Clone)]
-pub struct WsState {
-    pub tx: broadcast::Sender<MeshEvent>,
-}
+use crate::state::ForgeState;
 
 /// Axum handler that upgrades HTTP to WebSocket.
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
-    State(state): State<WsState>,
+    State(state): State<Arc<ForgeState>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(mut socket: WebSocket, state: WsState) {
+async fn handle_socket(mut socket: WebSocket, state: Arc<ForgeState>) {
     let mut rx = state.tx.subscribe();
+    // Replay the cached node_info as a synthetic NodeStarted so clients that connect
+    // after the node booted still see identity/addrs.
+    if let Some(info) = state.node_info.read().await.clone() {
+        let synthetic = MeshEvent::NodeStarted {
+            peer_id: info.peer_id,
+            listen_addrs: info.listen_addrs,
+        };
+        if let Ok(json) = serde_json::to_string(&synthetic) {
+            if socket.send(Message::Text(json)).await.is_err() {
+                return;
+            }
+        }
+    }
     loop {
         match rx.recv().await {
             Ok(event) => {

@@ -1,52 +1,53 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use axum::{
-    http::{HeaderValue, Request},
+    extract::State,
+    http::{HeaderValue, Request, StatusCode},
     middleware::{self, Next},
-    response::{Html, Response},
-    routing::get,
-    Router,
+    response::{Html, IntoResponse, Response},
+    routing::{get, post},
+    Json, Router,
 };
-use tokio::sync::broadcast;
+use serde::Deserialize;
 use tower_http::services::ServeDir;
 
-use crate::events::MeshEvent;
-use crate::ws::{ws_handler, WsState};
+use crate::discovery;
+use crate::state::{DialRequest, ForgeState};
+use crate::ws::ws_handler;
 
 /// Build the axum router for the forge-ui server.
 ///
 /// Serves:
 /// - `/ws` — WebSocket endpoint for real-time mesh events
+/// - `/config` — JSON with `{app_name}` (kept for backwards compat with older panels)
+/// - `/api/node/info` — cached PeerId + listen addrs (+ app_name + http_port)
+/// - `/api/peer/dial` — POST {peer_id, addr}: enqueues a `DialRequest` on the app's channel
+/// - `/api/peers/discovered` — cache of peers seen by forge-ui's discovery backends
+/// - `/api/discovery/mdns` — POST {enabled}: toggles the mDNS backend (A4)
 /// - App-specific API routes (from `extra_routes`)
 /// - `/app/*` — app-specific static files (from `app_static_dir`)
-/// - `/*` — forge-ui's own static files (index.html, mesh.js, style.css)
+/// - `/*` — forge-ui's own static files (index.html, mesh.js, style.css, peers.js)
 pub fn build_router(
-    tx: broadcast::Sender<MeshEvent>,
-    app_name: String,
+    state: Arc<ForgeState>,
     app_static_dir: Option<PathBuf>,
     extra_routes: Option<Router>,
 ) -> Router {
-    let ws_state = WsState { tx };
-
     let mut router = Router::new()
         .route("/ws", get(ws_handler))
-        .route(
-            "/config",
-            get({
-                let name = app_name.clone();
-                move || async move {
-                    axum::Json(serde_json::json!({ "app_name": name }))
-                }
-            }),
-        )
-        .with_state(ws_state);
+        .route("/config", get(config_handler))
+        .route("/api/node/info", get(node_info_handler))
+        .route("/api/peer/dial", post(dial_handler))
+        .route("/api/peers/discovered", get(discovered_handler))
+        .route("/api/discovery/mdns", post(mdns_toggle_handler))
+        .with_state(state);
 
-    // Merge app-specific API routes (before static file services)
+    // Merge app-specific API routes (before static file services).
     if let Some(extra) = extra_routes {
         router = router.merge(extra);
     }
 
-    // Serve app-specific static files under /app/
+    // Serve app-specific static files under /app/.
     if let Some(dir) = app_static_dir {
         router = router.nest_service("/app", ServeDir::new(dir));
     } else {
@@ -56,13 +57,102 @@ pub fn build_router(
         );
     }
 
-    // Serve forge-ui's own static files (index.html, mesh.js, style.css) at root
+    // Serve forge-ui's own static files (index.html, mesh.js, peers.js, style.css) at root.
     let ui_static = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static");
     router = router.fallback_service(ServeDir::new(ui_static));
 
-    // Disable browser caching — this is a dev server, stale JS/CSS causes
-    // pain when iterating on the frontend.
+    // Dev server: keep caches off so HTML/JS/CSS iteration is painless.
     router.layer(middleware::from_fn(no_cache_headers))
+}
+
+async fn config_handler(State(state): State<Arc<ForgeState>>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "app_name": state.app_name }))
+}
+
+async fn node_info_handler(State(state): State<Arc<ForgeState>>) -> Response {
+    let info = state.node_info.read().await.clone();
+    match info {
+        Some(info) => Json(serde_json::json!({
+            "peer_id": info.peer_id,
+            "listen_addrs": info.listen_addrs,
+            "app_name": state.app_name,
+            "http_port": state.local_http_port,
+        }))
+        .into_response(),
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "node has not started yet",
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct DialReqBody {
+    peer_id: String,
+    addr: String,
+}
+
+async fn dial_handler(
+    State(state): State<Arc<ForgeState>>,
+    Json(body): Json<DialReqBody>,
+) -> Response {
+    let peer_id = body.peer_id.trim().to_string();
+    let addr = body.addr.trim().to_string();
+    if peer_id.is_empty() || addr.is_empty() {
+        return (StatusCode::BAD_REQUEST, "peer_id and addr are required").into_response();
+    }
+    let Some(tx) = state.dial_tx.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "dialing is not enabled (app did not provide a dial sender)",
+        )
+            .into_response();
+    };
+    match tx.send(DialRequest { peer_id, addr }).await {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(_) => {
+            (StatusCode::SERVICE_UNAVAILABLE, "dial channel closed").into_response()
+        }
+    }
+}
+
+async fn discovered_handler(State(state): State<Arc<ForgeState>>) -> Json<serde_json::Value> {
+    let map = state.discovered.read().await;
+    let peers: Vec<_> = map.values().cloned().collect();
+    Json(serde_json::json!({ "peers": peers }))
+}
+
+#[derive(Deserialize)]
+struct MdnsToggle {
+    enabled: bool,
+}
+
+async fn mdns_toggle_handler(
+    State(state): State<Arc<ForgeState>>,
+    Json(body): Json<MdnsToggle>,
+) -> Response {
+    if body.enabled {
+        match discovery::start_mdns(state.clone()).await {
+            Ok(()) => {
+                state
+                    .mdns_enabled
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                StatusCode::ACCEPTED.into_response()
+            }
+            Err(e) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("mdns start failed: {e}"),
+            )
+                .into_response(),
+        }
+    } else {
+        discovery::stop_mdns(state.clone()).await;
+        state
+            .mdns_enabled
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        StatusCode::ACCEPTED.into_response()
+    }
 }
 
 /// Middleware that adds `Cache-Control: no-store` to every response.

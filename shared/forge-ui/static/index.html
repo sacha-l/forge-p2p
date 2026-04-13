@@ -15,6 +15,14 @@
   <div id="shell">
     <header>
       <h1 id="app-title">ForgeP2P</h1>
+
+      <div id="node-card" title="Local node identity">
+        <span class="node-label">Peer</span>
+        <code id="node-peer-id" class="copyable" data-empty="—">—</code>
+        <span class="node-label">Addr</span>
+        <code id="node-addr" class="copyable" data-empty="—">—</code>
+      </div>
+
       <div class="status">
         <span class="dot connecting" id="status-dot"></span>
         <span id="status-text">Connecting...</span>
@@ -25,9 +33,61 @@
       <iframe id="app-iframe" src="/app/index.html"></iframe>
     </div>
 
-    <div id="mesh-panel">
-      <h2>Mesh</h2>
-      <svg id="mesh-svg"></svg>
+    <div id="right-panel">
+      <div id="tabs" role="tablist">
+        <button class="tab active" data-tab="mesh" role="tab">Mesh</button>
+        <button class="tab" data-tab="peers" role="tab">Peers</button>
+      </div>
+
+      <div id="tab-mesh" class="tab-content active" role="tabpanel">
+        <svg id="mesh-svg"></svg>
+      </div>
+
+      <div id="tab-peers" class="tab-content" role="tabpanel">
+        <section class="peers-section">
+          <h3>Connected <span class="count" id="connected-count">0</span></h3>
+          <div id="connected-list" class="peer-list empty">No peers connected</div>
+        </section>
+
+        <section class="peers-section">
+          <h3>Discovered <span class="count" id="discovered-count">0</span></h3>
+          <div id="discovered-list" class="peer-list empty">No peers discovered yet</div>
+        </section>
+
+        <section class="peers-section">
+          <h3>Manual dial</h3>
+          <form id="manual-dial-form">
+            <label>
+              <span class="field-label">PeerId</span>
+              <input id="manual-peer-id" type="text" autocomplete="off"
+                     spellcheck="false" placeholder="12D3KooW…" required>
+            </label>
+            <label>
+              <span class="field-label">Multiaddr</span>
+              <input id="manual-addr" type="text" autocomplete="off"
+                     spellcheck="false" placeholder="/ip4/127.0.0.1/tcp/50000" required>
+            </label>
+            <div class="form-row">
+              <button type="submit" id="manual-dial-btn">Connect</button>
+              <span id="manual-dial-status" class="status-line"></span>
+            </div>
+          </form>
+        </section>
+
+        <section class="peers-section">
+          <h3>Discovery</h3>
+          <label class="toggle">
+            <input type="checkbox" id="toggle-auto-connect" checked>
+            <span>Auto-connect to discovered peers</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="toggle-mdns">
+            <span>mDNS (cross-machine LAN)</span>
+          </label>
+          <p class="hint">Localhost port scan runs automatically. Enable mDNS
+            to demo discovery across machines on the same network.</p>
+        </section>
+      </div>
     </div>
 
     <div id="event-log">
@@ -37,5 +97,6 @@
   </div>
 
   <script src="/mesh.js"></script>
+  <script src="/peers.js"></script>
 </body>
 </html>
