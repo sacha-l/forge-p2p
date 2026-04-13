@@ -6,14 +6,14 @@ created = "2026-04-13T00:00:00Z"
 [progress]
 total_steps = 6
 current_step = 6
-status = "in-progress"
-last_completed_step = 5
-last_updated = "2026-04-13T01:15:00Z"
+status = "complete"
+last_completed_step = 6
+last_updated = "2026-04-13T01:20:00Z"
 
 [current_step]
 title = "Integration test (2-node gossip round-trip)"
 attempt = 1
-files_modified = []
+files_modified = ["tests/integration.rs", "README.md"]
 
 [blocker]
 step = 0
