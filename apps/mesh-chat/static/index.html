@@ -13,6 +13,38 @@
         <span id="chat-status" class="status">connecting…</span>
       </header>
 
+      <details id="dial-panel">
+        <summary>Connect to peer</summary>
+        <form id="dial-form">
+          <label>
+            PeerId
+            <input
+              id="dial-peer-id"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="12D3KooW…"
+              required
+            />
+          </label>
+          <label>
+            Multiaddr
+            <input
+              id="dial-addr"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="/ip4/127.0.0.1/tcp/50000"
+              required
+            />
+          </label>
+          <div class="dial-row">
+            <button id="dial-btn" type="submit">Connect</button>
+            <span id="dial-status" class="status"></span>
+          </div>
+        </form>
+      </details>
+
       <div id="messages" aria-live="polite"></div>
 
       <form id="compose">
