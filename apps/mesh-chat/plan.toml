@@ -83,3 +83,13 @@ apis = ["AppData::DailPeer", "ForgeUI::with_routes", "PeerId::from_str"]
 test_criteria = "Start both peers with no CLI bootnode. Bobby's panel dial form dials Al; within ~10-15s the chat topic subscriptions propagate and Al->Bobby messages deliver."
 test_command = "cargo run -- --peer al"
 validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 8
+title = "Adopt forge-ui 0.2 -- drop in-app dial plumbing"
+description = "forge-ui 0.2 ships /api/peer/dial, the Peers tab, node identity card, localhost + mDNS discovery, and auto-connect. Remove the duplicated in-app implementations: delete dial_handler + Command::Dial, wire dial_tx via ForgeUI::with_dial_sender, and add a DialRequest arm in main's tokio::select!. Drop the <details id=dial-panel> block from the iframe HTML + its CSS + JS."
+files = ["src/main.rs", "static/index.html", "static/chat.js", "static/chat.css", "README.md"]
+apis = ["ForgeUI::with_dial_sender", "forge_ui::DialRequest", "AppData::DailPeer"]
+test_criteria = "Start both peers with no CLI bootnode. Each UI's Peers tab shows the other node under Discovered within ~5s, auto-connects, and a chat message round-trips after gossip mesh forms."
+test_command = "cargo test -p mesh-chat"
+validation = ["cargo check", "cargo clippy", "cargo test"]

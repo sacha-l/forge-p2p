@@ -19,3 +19,8 @@
 - **Context**: Gossipsub mesh forms asymmetrically when a peer joins a topic before the first connection. Bobby reliably receives Al's broadcasts; the reverse is flaky.
 - **Decision**: Ship the demo with the library's current behaviour — users will primarily see Al → Bobby. Logged as library-feedback. Not worth blocking the demo on a library-level mesh fix.
 - **Trade-off**: Two open Bobby panels will not always show each other's messages. Both will always show Al's.
+
+## Step 8 — Adopt forge-ui 0.2; delete app-side peer plumbing
+- **Context**: forge-ui grew built-in peering (node card, peers tab, localhost scan, mDNS, /api/peer/dial). The app-side dial form and route were now duplicates.
+- **Decision**: Replace the app's `Command::Dial` path with a `mpsc::Sender<forge_ui::DialRequest>` wired via `ForgeUI::with_dial_sender`. Keep the app's own `POST /api/chat/send` (that's app-specific). Drop the iframe's dial form + CSS + JS.
+- **Trade-off**: The app now depends on forge-ui's auto-discovery for one-command bring-up. The CLI bootnode args still work as a scripted fallback.
