@@ -14,3 +14,8 @@
 ## Step 1 — `with_bootnodes` actually takes `HashMap<String, String>`
 - **Context**: Reference doc and prior `HashMap<PeerId, String>` pattern didn't compile.
 - **Resolution**: Pass the peer id as a string. Logged in `library-feedback.md` (2026-04-13 entry).
+
+## Step 3 — Accept one-way gossip delivery for the demo
+- **Context**: Gossipsub mesh forms asymmetrically when a peer joins a topic before the first connection. Bobby reliably receives Al's broadcasts; the reverse is flaky.
+- **Decision**: Ship the demo with the library's current behaviour — users will primarily see Al → Bobby. Logged as library-feedback. Not worth blocking the demo on a library-level mesh fix.
+- **Trade-off**: Two open Bobby panels will not always show each other's messages. Both will always show Al's.

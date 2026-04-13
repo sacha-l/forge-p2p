@@ -75,6 +75,15 @@
 - **Workaround**: Use a module-level `OnceLock<PathBuf>` (or similar global) set before `CoreBuilder::...build()` runs. Means you can't run two nodes with different data dirs in one process.
 - **Severity**: nice-to-have
 
+## [2026-04-13] mesh-chat — gossipsub mesh is one-way when topic is joined before the first peer connects
+
+- **Context**: Al joins topic `"chat"` on startup, Bobby dials Al and joins the same topic. Both are happy to broadcast; only Al → Bobby delivery is reliable.
+- **Problem**: Al receives `GossipsubSubscribeMessageReceived` for Bobby, but Bobby never receives the equivalent event for Al. Result: Bobby's broadcasts do not propagate to Al (no mesh link exists from Bobby's side). Al-side broadcasts deliver fine for the first few seconds, then also drop silently.
+- **Suggestion**: On `ConnectionEstablished`, re-emit the local node's current gossip subscriptions to the new peer (libp2p's gossipsub does this automatically but the event layer may be swallowing it). Alternatively, document that apps must call `GossipsubJoinNetwork` *after* establishing connections, or re-join on every new peer.
+- **Workaround**: None satisfying. A periodic re-join each heartbeat works but is wasteful. Intermittent delivery means demos should visibly show one direction (e.g. Al → Bobby) and mention the limitation.
+- **Severity**: important
+- **Relevant API**: `AppData::GossipsubJoinNetwork`, `NetworkEvent::GossipsubSubscribeMessageReceived`, `NetworkEvent::GossipsubIncomingMessageHandled`
+
 ## [2026-04-13] mesh-chat — `BootstrapConfig::with_bootnodes` takes `HashMap<String, String>`, not `HashMap<PeerId, String>`
 
 - **Context**: Configuring Bobby to dial Al by peer id + multiaddr.

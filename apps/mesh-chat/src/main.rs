@@ -1,3 +1,5 @@
+mod chat;
+
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -7,7 +9,13 @@ use forge_ui::{ForgeUI, MeshEvent};
 use swarm_nl::core::{AppData, CoreBuilder, NetworkEvent};
 use swarm_nl::setup::BootstrapConfig;
 
-const CHAT_TOPIC: &str = "chat";
+use crate::chat::{handle_event, ChatLine, CHAT_TOPIC};
+
+/// Delay before the first broadcast — gossipsub mesh takes ~5s to form
+/// (see library-feedback.md).
+const MESH_WARMUP: Duration = Duration::from_secs(5);
+/// Interval between hardcoded ping broadcasts (step 3 only; removed in step 5).
+const PING_INTERVAL: Duration = Duration::from_secs(3);
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum PeerName {
@@ -152,57 +160,54 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Wait for the gossipsub mesh to form before the first broadcast.
+    let start_broadcasting_at = tokio::time::Instant::now() + MESH_WARMUP;
+    let mut ping_ticker = tokio::time::interval_at(start_broadcasting_at, PING_INTERVAL);
+    let mut ping_counter: u32 = 0;
+
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 println!("shutting down {name}");
                 return Ok(());
             }
+            _ = ping_ticker.tick() => {
+                ping_counter += 1;
+                let line = ChatLine {
+                    from: name.clone(),
+                    text: format!("ping #{ping_counter}"),
+                };
+                let bytes = line.encode();
+                let size = bytes.len();
+                let req = AppData::GossipsubBroadcastMessage {
+                    topic: CHAT_TOPIC.to_string(),
+                    message: vec![bytes],
+                };
+                match node.query_network(req).await {
+                    Ok(_) => {
+                        ui.push(MeshEvent::MessageSent {
+                            to: CHAT_TOPIC.to_string(),
+                            topic: CHAT_TOPIC.to_string(),
+                            size_bytes: size,
+                        })
+                        .await;
+                        ui.push(MeshEvent::Custom {
+                            label: "CHAT".to_string(),
+                            detail: format!("{}: {}", line.from, line.text),
+                        })
+                        .await;
+                        tracing::info!(text = %line.text, "broadcast ok");
+                    }
+                    Err(e) => {
+                        tracing::warn!(?e, "broadcast failed (mesh may still be forming)");
+                    }
+                }
+            }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 while let Some(event) = node.next_event().await {
                     handle_event(event, &ui).await;
                 }
             }
-        }
-    }
-}
-
-async fn handle_event(event: NetworkEvent, ui: &forge_ui::UiHandle) {
-    match event {
-        NetworkEvent::ConnectionEstablished {
-            peer_id, endpoint, ..
-        } => {
-            let pid = peer_id.to_string();
-            let addr = format!("{endpoint:?}");
-            tracing::info!(peer = %pid, "connection established");
-            ui.push(MeshEvent::PeerConnected {
-                peer_id: pid,
-                addr,
-            })
-            .await;
-        }
-        NetworkEvent::ConnectionClosed { peer_id, .. } => {
-            let pid = peer_id.to_string();
-            tracing::info!(peer = %pid, "connection closed");
-            ui.push(MeshEvent::PeerDisconnected { peer_id: pid }).await;
-        }
-        NetworkEvent::GossipsubSubscribeMessageReceived { peer_id, topic } => {
-            tracing::info!(peer = %peer_id, %topic, "peer subscribed to topic");
-            ui.push(MeshEvent::Custom {
-                label: "SUB".to_string(),
-                detail: format!("{peer_id} subscribed to {topic}"),
-            })
-            .await;
-        }
-        NetworkEvent::GossipsubUnsubscribeMessageReceived { peer_id, topic } => {
-            ui.push(MeshEvent::Custom {
-                label: "UNSUB".to_string(),
-                detail: format!("{peer_id} left {topic}"),
-            })
-            .await;
-        }
-        other => {
-            tracing::debug!(?other, "unhandled network event");
         }
     }
 }
