@@ -1,10 +1,20 @@
 # ForgeP2P
 
-An agentic workflow for building peer-to-peer applications with [SwarmNL](https://github.com/algorealmInc/SwarmNL).
+Working peer-to-peer apps built on [SwarmNL](https://github.com/algorealmInc/SwarmNL), plus an agentic workflow for adding new ones.
 
 ## What This Is
 
-ForgeP2P pairs a coding agent with structured SwarmNL documentation to build, test, and showcase P2P networked applications. The agent follows a strict plan-implement-test loop with machine-readable state, so it can resume autonomously across sessions and never ship untested code.
+**A growing cookbook of SwarmNL apps.** Read them, run them, copy the patterns. Every app ships with an embedded web UI and a live mesh visualizer via [`forge-ui`](shared/forge-ui/), so you can actually see gossip propagate, peers dial each other, and DHT lookups resolve — not just watch stdout scroll by.
+
+**An opinionated agentic workflow for building more.** A coding agent reads the reference docs, plans step-by-step, and implements one step at a time behind a `cargo check + clippy + test` gate. State lives in machine-readable TOML so work resumes across sessions without prose interpretation.
+
+You can use ForgeP2P either way: as a reference implementation of SwarmNL patterns, or as a scaffold to ship a new app with the agent.
+
+## Using SwarmNL anywhere? Contribute feedback
+
+[`library-feedback.md`](library-feedback.md) is a shared log of SwarmNL API papercuts and workarounds discovered while building real apps. It accumulates across every build so nobody has to rediscover the same issue twice.
+
+**If you hit something in SwarmNL — in this repo, in your own fork, or in an unrelated project — please PR an entry.** A small PR that touches only `library-feedback.md` is the fastest to merge. See [CONTRIBUTING.md](CONTRIBUTING.md) for the 60-second recipe.
 
 ## Quick Start
 
@@ -57,7 +67,8 @@ forge-p2p/
 │       ├── static/                 # App-specific UI panel
 │       ├── tests/
 │       └── README.md
-├── library-feedback.md
+├── library-feedback.md            # Shared SwarmNL papercut log (PR entries upstream!)
+├── CONTRIBUTING.md                # How to PR a library-feedback entry from a fork
 └── README.md
 ```
 

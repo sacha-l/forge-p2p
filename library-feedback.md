@@ -3,6 +3,11 @@
 > Improvements, issues, and suggestions discovered while building apps with SwarmNL.
 > Each entry is logged by the coding agent during development.
 
+**Contributing an entry?** See [CONTRIBUTING.md](CONTRIBUTING.md) — a PR that
+touches only this file is fastest to merge. If you're working in a fork, only
+your `library-feedback.md` diff needs to travel back upstream; your app
+artifacts stay in your fork.
+
 ---
 
 ## [2026-04-12] echo-gossip — `swarm_nl::core::prelude` module is private

@@ -243,6 +243,18 @@ When you encounter:
 - A bug or unexpected behavior
 - A pattern that should be in the library but isn't
 
+**After every append to `library-feedback.md`, remind the user to PR it upstream.**
+This is the mechanism by which the shared knowledge base actually stays shared.
+Print a short message of the form:
+
+> "Logged a new `library-feedback.md` entry: **<title>**. This knowledge is
+> most useful when it lives on the root repo — please open an upstream PR
+> using the recipe in `CONTRIBUTING.md`. Your fork's `apps/` artifacts stay
+> local; only the one `library-feedback.md` block needs to travel."
+
+Do this every time, even if the user has seen it before. It is cheap and the
+alternative (feedback rotting in a fork) defeats the point of the file.
+
 ### Format
 
 ```markdown
@@ -259,8 +271,12 @@ Also set `is_library_issue = true` in forge-state.toml if it's a blocker.
 
 ### Syncing feedback to main
 
-After logging a new entry in `library-feedback.md`, sync it to `main` so
-the next app build has access to it:
+After logging a new entry in `library-feedback.md`, get it onto the shared
+`main` branch so the next app build picks it up. The recipe depends on whether
+you have push access to the **root** repo (`upstream/main`) or you're working
+in a fork.
+
+#### Case A — maintainer (push access to `origin/main`)
 
 ```bash
 # While on dev/<app-name> branch:
@@ -273,13 +289,25 @@ git commit -m "forge: feedback -- <brief description>"
 git checkout dev/<app-name>            # return to dev branch
 ```
 
-Do this:
+If `swarm-nl-reference.md` also needs a correction based on the finding,
+update it on `main` in the same commit.
+
+#### Case B — fork (no push access to the root repo)
+
+Do **not** try to push to upstream. Instead, follow the PR recipe in
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) — branch off `upstream/main`, copy
+**only** the new `library-feedback.md` block onto that branch, commit, push
+to your fork, and open a PR. Your fork's `apps/<app-name>/` artifacts stay
+in your fork.
+
+If you are not sure which case applies, assume Case B and open a PR. The
+maintainer can always fast-path it.
+
+#### When to sync
+
 - Immediately when logging a blocking issue
 - At app completion (final step)
 - When explicitly asked by the user
-
-If the `swarm-nl-reference.md` also needs a correction based on the finding,
-update it on `main` in the same commit.
 
 ## 7. Code Standards
 
