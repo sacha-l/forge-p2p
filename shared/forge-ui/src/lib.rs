@@ -1,3 +1,12 @@
+//! Embedded web UI, mesh visualizer, and peer-discovery for ForgeP2P apps.
+//!
+//! Apps use the [`ForgeUI`] builder to start an Axum server on localhost that
+//! serves a split-pane UI (app panel + mesh visualizer) and a WebSocket feed
+//! of [`MeshEvent`]s. The [`UiHandle`] returned from [`ForgeUI::start`] is how
+//! apps push events into that feed.
+//!
+//! See `CLAUDE.md` and `.forge/workflow.md` for the full integration contract.
+
 pub mod discovery;
 pub mod events;
 pub mod server;
@@ -9,11 +18,20 @@ pub use state::{DialRequest, DiscoveredPeer, NodeInfo};
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::Router;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::state::{spawn_state_mirror, ForgeState};
+
+/// Capacity of the broadcast channel carrying [`MeshEvent`]s to WebSocket clients.
+///
+/// Bumped beyond the default 256 because busy apps (gossip, chat) can emit
+/// many events in quick succession while a browser reconnects. If a client
+/// still lags past this window, the WS handler logs a warning and keeps
+/// running — no crash, but the client will have gaps in its event log until
+/// it gets a fresh snapshot.
+const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 /// Handle for pushing events to the UI after the server is started.
 #[derive(Clone)]
@@ -22,9 +40,14 @@ pub struct UiHandle {
 }
 
 impl UiHandle {
-    /// Push a mesh event to all connected WebSocket clients.
+    /// Broadcast `event` to all connected WebSocket clients.
+    ///
+    /// This call is fire-and-forget: it succeeds even when no clients are
+    /// connected (common during startup) and never blocks the caller. If the
+    /// buffer is full (capacity [`EVENT_CHANNEL_CAPACITY`]), lagging clients
+    /// drop events and the WS handler logs a warning; the `push` itself still
+    /// returns normally.
     pub async fn push(&self, event: MeshEvent) {
-        // Ignore send errors (no receivers connected yet).
         let _ = self.tx.send(event);
     }
 }
@@ -101,8 +124,22 @@ impl ForgeUI {
     }
 
     /// Start the web server in the background and return a handle for pushing events.
+    ///
+    /// Fails fast if the configured `app_static_dir` does not exist or the
+    /// HTTP port cannot be bound. After the server has started successfully,
+    /// later fatal errors from Axum are logged via `tracing::error!` (the
+    /// task cannot propagate them synchronously once the handle is returned).
     pub async fn start(self) -> Result<UiHandle> {
-        let (tx, _rx) = broadcast::channel::<MeshEvent>(256);
+        if let Some(dir) = self.app_static_dir.as_ref() {
+            if !dir.is_dir() {
+                return Err(anyhow::anyhow!(
+                    "forge-ui: app_static_dir {:?} does not exist or is not a directory",
+                    dir
+                ));
+            }
+        }
+
+        let (tx, _rx) = broadcast::channel::<MeshEvent>(EVENT_CHANNEL_CAPACITY);
         let handle = UiHandle { tx: tx.clone() };
 
         let state = ForgeState::new(
@@ -118,11 +155,14 @@ impl ForgeUI {
 
         let router = server::build_router(state, self.app_static_dir, self.extra_routes);
         let addr = format!("127.0.0.1:{}", self.port);
-        let listener = tokio::net::TcpListener::bind(&addr).await?;
+        let listener = tokio::net::TcpListener::bind(&addr)
+            .await
+            .with_context(|| format!("forge-ui: failed to bind {addr}"))?;
 
+        let app_name = self.app_name.clone();
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, router).await {
-                eprintln!("forge-ui server error: {e}");
+                tracing::error!(error = ?e, app = %app_name, "forge-ui server exited with error");
             }
         });
 

@@ -29,8 +29,10 @@ pub struct NodeInfo {
     pub listen_addrs: Vec<String>,
 }
 
-/// A peer discovered by one of forge-ui's discovery backends (localhost scan or mDNS).
-/// Identified uniquely by `peer_id`; the latest entry wins on update.
+/// A peer discovered by one of forge-ui's discovery backends (localhost scan
+/// or mDNS). Identified uniquely by `peer_id`; the latest entry wins on
+/// update. `source` is a stable tag (`"localhost"` or `"mdns"`) used by
+/// eviction logic to scope `PeerLost` events to the backend that owns them.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DiscoveredPeer {
     pub peer_id: String,
@@ -39,11 +41,17 @@ pub struct DiscoveredPeer {
 }
 
 /// Request from forge-ui → app: "please dial this peer".
+///
 /// Apps receive these on the `mpsc::Receiver` whose sender was passed to
-/// `ForgeUI::with_dial_sender(...)`.
+/// [`crate::ForgeUI::with_dial_sender`]. Sources:
+///
+/// - the `POST /api/peer/dial` HTTP route (manual dial from the UI), and
+/// - auto-dial on first sight of a discovered peer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DialRequest {
+    /// libp2p-style base58 PeerId of the target node.
     pub peer_id: String,
+    /// Multiaddr the app should use to dial, e.g. `/ip4/127.0.0.1/tcp/3000`.
     pub addr: String,
 }
 
@@ -117,7 +125,7 @@ pub fn spawn_state_mirror(state: Arc<ForgeState>) {
     });
 }
 
-async fn apply_event(state: &ForgeState, event: MeshEvent) {
+pub(crate) async fn apply_event(state: &ForgeState, event: MeshEvent) {
     match event {
         MeshEvent::NodeStarted {
             peer_id,
@@ -152,5 +160,178 @@ async fn apply_event(state: &ForgeState, event: MeshEvent) {
             state.discovered.write().await.remove(&peer_id);
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_state() -> Arc<ForgeState> {
+        let (tx, _rx) = broadcast::channel::<MeshEvent>(16);
+        ForgeState::new(tx, None, None, 8080, (8080, 8089), "test".into())
+    }
+
+    #[tokio::test]
+    async fn node_started_populates_node_info() {
+        let s = mk_state();
+        apply_event(
+            &s,
+            MeshEvent::NodeStarted {
+                peer_id: "p1".into(),
+                listen_addrs: vec!["/ip4/127.0.0.1/tcp/3000".into()],
+            },
+        )
+        .await;
+        let info = s.node_info.read().await.clone().expect("node_info set");
+        assert_eq!(info.peer_id, "p1");
+        assert_eq!(info.listen_addrs, vec!["/ip4/127.0.0.1/tcp/3000"]);
+    }
+
+    #[tokio::test]
+    async fn node_started_overwrites_previous() {
+        let s = mk_state();
+        apply_event(
+            &s,
+            MeshEvent::NodeStarted {
+                peer_id: "old".into(),
+                listen_addrs: vec![],
+            },
+        )
+        .await;
+        apply_event(
+            &s,
+            MeshEvent::NodeStarted {
+                peer_id: "new".into(),
+                listen_addrs: vec!["/ip4/127.0.0.1/tcp/1".into()],
+            },
+        )
+        .await;
+        assert_eq!(s.node_info.read().await.as_ref().unwrap().peer_id, "new");
+    }
+
+    #[tokio::test]
+    async fn peer_connected_is_idempotent() {
+        let s = mk_state();
+        for _ in 0..3 {
+            apply_event(
+                &s,
+                MeshEvent::PeerConnected {
+                    peer_id: "p1".into(),
+                    addr: "/ip4/127.0.0.1/tcp/1".into(),
+                },
+            )
+            .await;
+        }
+        let connected = s.connected.read().await;
+        assert_eq!(connected.len(), 1);
+        assert!(connected.contains("p1"));
+    }
+
+    #[tokio::test]
+    async fn peer_disconnected_for_unknown_is_noop() {
+        let s = mk_state();
+        apply_event(
+            &s,
+            MeshEvent::PeerDisconnected {
+                peer_id: "never-seen".into(),
+            },
+        )
+        .await;
+        assert!(s.connected.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn peer_disconnected_removes_existing() {
+        let s = mk_state();
+        apply_event(
+            &s,
+            MeshEvent::PeerConnected {
+                peer_id: "p1".into(),
+                addr: "/ip4/127.0.0.1/tcp/1".into(),
+            },
+        )
+        .await;
+        apply_event(
+            &s,
+            MeshEvent::PeerDisconnected {
+                peer_id: "p1".into(),
+            },
+        )
+        .await;
+        assert!(s.connected.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn peer_discovered_inserts_and_updates() {
+        let s = mk_state();
+        apply_event(
+            &s,
+            MeshEvent::PeerDiscovered {
+                peer_id: "p1".into(),
+                addr: "/ip4/127.0.0.1/tcp/1".into(),
+                source: "localhost".into(),
+            },
+        )
+        .await;
+        apply_event(
+            &s,
+            MeshEvent::PeerDiscovered {
+                peer_id: "p1".into(),
+                addr: "/ip4/127.0.0.1/tcp/2".into(),
+                source: "mdns".into(),
+            },
+        )
+        .await;
+        let d = s.discovered.read().await;
+        assert_eq!(d.len(), 1);
+        let entry = d.get("p1").unwrap();
+        assert_eq!(entry.addr, "/ip4/127.0.0.1/tcp/2");
+        assert_eq!(entry.source, "mdns");
+    }
+
+    #[tokio::test]
+    async fn peer_lost_removes_entry_regardless_of_source() {
+        let s = mk_state();
+        apply_event(
+            &s,
+            MeshEvent::PeerDiscovered {
+                peer_id: "p1".into(),
+                addr: "/ip4/127.0.0.1/tcp/1".into(),
+                source: "mdns".into(),
+            },
+        )
+        .await;
+        apply_event(
+            &s,
+            MeshEvent::PeerLost {
+                peer_id: "p1".into(),
+                source: "mdns".into(),
+            },
+        )
+        .await;
+        assert!(s.discovered.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unrelated_events_dont_touch_state() {
+        let s = mk_state();
+        apply_event(
+            &s,
+            MeshEvent::MessageSent {
+                to: "p1".into(),
+                topic: "t".into(),
+                size_bytes: 0,
+            },
+        )
+        .await;
+        apply_event(
+            &s,
+            MeshEvent::GossipJoined { topic: "t".into() },
+        )
+        .await;
+        assert!(s.node_info.read().await.is_none());
+        assert!(s.connected.read().await.is_empty());
+        assert!(s.discovered.read().await.is_empty());
     }
 }

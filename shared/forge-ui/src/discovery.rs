@@ -24,11 +24,28 @@ use crate::state::{DialRequest, DiscoveredPeer, ForgeState, MdnsBackend};
 
 /// mDNS service type advertised by forge-ui.
 const MDNS_SERVICE_TYPE: &str = "_forge-p2p._tcp.local.";
+/// Prefix prepended to the local peer_id when forming an mDNS instance name.
+/// The instance name round-trips through [`instance_name_for`] /
+/// [`peer_id_from_instance`], so anything that formats instance names must go
+/// through those helpers to keep the encoding consistent.
+const MDNS_INSTANCE_PREFIX: &str = "forge-";
 
 /// Interval between localhost-scan passes.
 const SCAN_INTERVAL: Duration = Duration::from_secs(5);
 /// Per-request timeout for the `/api/node/info` probes.
 const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Format the mDNS instance label for a given peer. Uses the full `peer_id`
+/// so two peers that happen to share a prefix cannot collide.
+fn instance_name_for(peer_id: &str) -> String {
+    format!("{MDNS_INSTANCE_PREFIX}{peer_id}")
+}
+
+/// Inverse of [`instance_name_for`]. Returns `None` if `instance` is not a
+/// forge-ui instance name.
+fn peer_id_from_instance(instance: &str) -> Option<&str> {
+    instance.strip_prefix(MDNS_INSTANCE_PREFIX)
+}
 
 #[derive(Deserialize)]
 struct NodeInfoBody {
@@ -109,12 +126,20 @@ async fn scan_once(state: &ForgeState, client: &reqwest::Client) -> anyhow::Resu
                 let already_connected =
                     state.connected.read().await.contains(&body.peer_id);
                 if !already_connected {
-                    let _ = tx
+                    let peer_id = body.peer_id.clone();
+                    if let Err(e) = tx
                         .send(DialRequest {
                             peer_id: body.peer_id,
                             addr,
                         })
-                        .await;
+                        .await
+                    {
+                        tracing::warn!(
+                            peer_id = %peer_id,
+                            error = ?e,
+                            "forge-ui: auto-dial failed — app dial channel closed"
+                        );
+                    }
                 }
             }
         }
@@ -168,18 +193,22 @@ pub async fn start_mdns(state: Arc<ForgeState>) -> anyhow::Result<()> {
         .clone()
         .ok_or_else(|| anyhow::anyhow!("node_info not ready; cannot advertise mDNS"))?;
 
-    // Pick a LAN multiaddr to publish. Prefer the first non-loopback listen addr;
-    // fall back to loopback (single-machine mDNS demo).
+    // Pick a LAN multiaddr to publish. Prefer the first non-loopback listen
+    // addr; fall back to loopback (single-machine mDNS demo). If we have no
+    // listen addr at all, refuse to advertise — an empty multiaddr is worse
+    // than not advertising, because resolvers would cache a dead entry.
     let multiaddr = info
         .listen_addrs
         .iter()
         .find(|a| a.starts_with("/ip4/") && !a.starts_with("/ip4/127.0.0.1/"))
         .cloned()
         .or_else(|| info.listen_addrs.first().cloned())
-        .unwrap_or_default();
+        .ok_or_else(|| {
+            anyhow::anyhow!("cannot advertise mDNS: node has no listen addresses yet")
+        })?;
 
     let daemon = mdns_sd::ServiceDaemon::new()?;
-    let instance_name = format!("forge-{}", &info.peer_id[..12.min(info.peer_id.len())]);
+    let instance_name = instance_name_for(&info.peer_id);
     let host_ip = pick_host_ip();
     let mut props = std::collections::HashMap::new();
     props.insert("peer_id".to_string(), info.peer_id.clone());
@@ -292,40 +321,46 @@ async fn on_resolved(state: &Arc<ForgeState>, info: mdns_sd::ServiceInfo) {
         if let Some(tx) = state.dial_tx.as_ref() {
             let already_connected = state.connected.read().await.contains(&peer_id);
             if !already_connected {
-                let _ = tx.send(DialRequest { peer_id, addr }).await;
+                let pid_for_log = peer_id.clone();
+                if let Err(e) = tx.send(DialRequest { peer_id, addr }).await {
+                    tracing::warn!(
+                        peer_id = %pid_for_log,
+                        error = ?e,
+                        "forge-ui: auto-dial (mDNS) failed — app dial channel closed"
+                    );
+                }
             }
         }
     }
 }
 
 async fn on_removed(state: &Arc<ForgeState>, fullname: &str) {
-    // mdns-sd gives us the fullname; we stored the peer_id in TXT so we don't
-    // have a reverse map. Walk the discovered cache and drop any mdns entries
-    // whose addr no longer resolves — cheap for small caches.
+    // mdns-sd gives us the fullname (`<instance>.<service_type>`). Strip the
+    // service suffix, then the `MDNS_INSTANCE_PREFIX` to recover the peer_id
+    // that was advertised by `instance_name_for`. If the message isn't one of
+    // ours, ignore it.
     let instance = fullname
         .strip_suffix(&format!(".{MDNS_SERVICE_TYPE}"))
-        .unwrap_or(fullname)
-        .to_string();
-    let mut to_remove = None;
-    {
-        let discovered = state.discovered.read().await;
-        for peer in discovered.values() {
-            // Our instance names are `forge-<12 char peer prefix>`.
-            if peer.source == "mdns"
-                && instance.strip_prefix("forge-").is_some_and(|prefix| peer.peer_id.starts_with(prefix))
-            {
-                to_remove = Some(peer.peer_id.clone());
-                break;
-            }
-        }
+        .unwrap_or(fullname);
+    let Some(peer_id) = peer_id_from_instance(instance) else {
+        return;
+    };
+    let peer_id = peer_id.to_string();
+
+    let has_entry = state
+        .discovered
+        .read()
+        .await
+        .get(&peer_id)
+        .is_some_and(|p| p.source == "mdns");
+    if !has_entry {
+        return;
     }
-    if let Some(pid) = to_remove {
-        state.discovered.write().await.remove(&pid);
-        let _ = state.tx.send(MeshEvent::PeerLost {
-            peer_id: pid,
-            source: "mdns".into(),
-        });
-    }
+    state.discovered.write().await.remove(&peer_id);
+    let _ = state.tx.send(MeshEvent::PeerLost {
+        peer_id,
+        source: "mdns".into(),
+    });
 }
 
 fn pick_host_ip() -> String {

@@ -285,6 +285,116 @@ async fn mdns_toggle_accepted() {
 }
 
 #[tokio::test]
+async fn root_serves_forge_ui_static_index() {
+    let _ui = ForgeUI::new()
+        .with_port(49040)
+        .with_app_name("static-test")
+        .start()
+        .await
+        .expect("start");
+
+    let res = reqwest::get("http://127.0.0.1:49040/")
+        .await
+        .expect("get /");
+    assert_eq!(res.status(), 200);
+    let body = res.text().await.expect("body");
+    // forge-ui's own index.html mentions the mesh visualizer canvas.
+    assert!(
+        body.contains("mesh") || body.to_lowercase().contains("forge"),
+        "unexpected index.html: {body}"
+    );
+}
+
+#[tokio::test]
+async fn missing_app_static_dir_is_rejected_at_builder_time() {
+    let result = ForgeUI::new()
+        .with_port(49050)
+        .with_app_name("bad-dir")
+        .with_app_static_dir("/definitely/does/not/exist/forge-ui")
+        .start()
+        .await;
+    let err = match result {
+        Ok(_) => panic!("start should reject missing static dir"),
+        Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("does not exist") || msg.contains("directory"),
+        "unexpected error: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn ws_handler_survives_broadcast_lag() {
+    // Push far more events than the broadcast buffer can hold while a WS
+    // client is held open but not draining. The handler must log + continue
+    // rather than crash, and a freshly connected client must still work.
+    let ui = ForgeUI::new()
+        .with_port(49060)
+        .with_app_name("lag-test")
+        .start()
+        .await
+        .expect("start");
+
+    // First WS connection: connect, then sit idle so it lags.
+    let (slow_ws, _) = timeout(
+        Duration::from_secs(5),
+        connect_async("ws://127.0.0.1:49060/ws"),
+    )
+    .await
+    .expect("slow connect not timeout")
+    .expect("slow connect ok");
+
+    // Push >> EVENT_CHANNEL_CAPACITY (1024) events to force the slow client
+    // past the broadcast buffer.
+    for i in 0..2048 {
+        ui.push(MeshEvent::MessageSent {
+            to: format!("p{i}"),
+            topic: "flood".into(),
+            size_bytes: 1,
+        })
+        .await;
+    }
+
+    // A fresh client must still connect and receive a new event.
+    let (mut fresh_ws, _) = timeout(
+        Duration::from_secs(5),
+        connect_async("ws://127.0.0.1:49060/ws"),
+    )
+    .await
+    .expect("fresh connect not timeout")
+    .expect("fresh connect ok");
+
+    ui.push(MeshEvent::Custom {
+        label: "after-lag".into(),
+        detail: "hello".into(),
+    })
+    .await;
+
+    let msg = timeout(Duration::from_secs(5), fresh_ws.next())
+        .await
+        .expect("fresh ws recv not timeout")
+        .expect("fresh ws yielded None")
+        .expect("fresh ws message ok");
+    let text = msg.to_text().expect("text");
+    // First frame may be a replayed NodeStarted; drain until we see our marker.
+    let mut saw_marker = text.contains("after-lag");
+    for _ in 0..4 {
+        if saw_marker {
+            break;
+        }
+        let msg = timeout(Duration::from_secs(2), fresh_ws.next())
+            .await
+            .expect("drain not timeout")
+            .expect("drain None")
+            .expect("drain ok");
+        saw_marker = msg.to_text().map(|t| t.contains("after-lag")).unwrap_or(false);
+    }
+    assert!(saw_marker, "fresh client should receive events after lag");
+    drop(slow_ws);
+}
+
+#[tokio::test]
 async fn dial_route_returns_503_when_app_did_not_wire_sender() {
     let _ui = ForgeUI::new()
         .with_port(49013)

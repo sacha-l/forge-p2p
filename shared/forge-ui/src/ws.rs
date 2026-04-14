@@ -1,3 +1,10 @@
+//! WebSocket handler for streaming `MeshEvent`s to browser clients.
+//!
+//! Each connection replays the cached `NodeStarted` (so late joiners see
+//! identity/addrs) and then streams live events. If a client lags behind the
+//! broadcast buffer, we log a warning with the number of dropped events — the
+//! UI will have gaps in its history until the next full state refresh.
+
 use std::sync::Arc;
 
 use axum::{
@@ -22,8 +29,6 @@ pub async fn ws_handler(
 
 async fn handle_socket(mut socket: WebSocket, state: Arc<ForgeState>) {
     let mut rx = state.tx.subscribe();
-    // Replay the cached node_info as a synthetic NodeStarted so clients that connect
-    // after the node booted still see identity/addrs.
     if let Some(info) = state.node_info.read().await.clone() {
         let synthetic = MeshEvent::NodeStarted {
             peer_id: info.peer_id,
@@ -40,13 +45,22 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<ForgeState>) {
             Ok(event) => {
                 let json = match serde_json::to_string(&event) {
                     Ok(j) => j,
-                    Err(_) => continue,
+                    Err(e) => {
+                        tracing::warn!(?e, "forge-ui: failed to serialize MeshEvent; dropping");
+                        continue;
+                    }
                 };
                 if socket.send(Message::Text(json)).await.is_err() {
                     break;
                 }
             }
-            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!(
+                    skipped = n,
+                    "forge-ui WebSocket client lagged; events dropped"
+                );
+                continue;
+            }
             Err(broadcast::error::RecvError::Closed) => break,
         }
     }

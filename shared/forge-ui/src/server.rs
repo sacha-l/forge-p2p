@@ -1,3 +1,10 @@
+//! HTTP routing layer: builds the axum `Router` that drives forge-ui.
+//!
+//! See [`build_router`] for the route map. Application-specific routes get
+//! merged in via `ForgeUI::with_routes` before the static file services are
+//! registered, so apps cannot accidentally shadow `/ws` or the built-in
+//! `/api/*` endpoints.
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
