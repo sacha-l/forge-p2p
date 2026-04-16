@@ -16,9 +16,9 @@ Each app lives on its own branch with a full README, build instructions, and tes
 
 | App | Branch | Pattern | What it shows |
 |-----|--------|---------|---------------|
-| **Echo Gossip** | [`dev/echo-gossip`](../../tree/dev/echo-gossip) | gossip | Topic join, broadcast, incoming message handling. The simplest SwarmNL app. |
-| **Mesh Chat** | [`dev/mesh-chat`](../../tree/dev/mesh-chat) | gossip | Two peers auto-discover via mDNS, chat over a shared topic, with a dual-view web UI. |
-| **Sovereign Notes** | [`dev/sovereign-notes`](../../tree/dev/sovereign-notes) | replication + gossip + RPC | Distributed note-taking with CRUD, gossip announcements, and RPC content pull. |
+| **Echo Gossip** | [`dev/echo-gossip`](https://github.com/sacha-l/forge-p2p/tree/dev/echo-gossip/apps/echo-gossip) | gossip | Topic join, broadcast, incoming message handling. The simplest SwarmNL app. |
+| **Mesh Chat** | [`dev/mesh-chat`](https://github.com/sacha-l/forge-p2p/tree/dev/mesh-chat/apps/mesh-chat) | gossip | Two peers auto-discover via mDNS, chat over a shared topic, with a dual-view web UI. |
+| **Sovereign Notes** | [`dev/sovereign-notes`](https://github.com/sacha-l/forge-p2p/tree/dev/sovereign-notes/apps/sovereign-notes) | replication + gossip + RPC | Distributed note-taking with CRUD, gossip announcements, and RPC content pull. |
 
 **Try one:**
 
