@@ -37,7 +37,7 @@ forge-p2p/
 
 - **Rust edition**: 2021
 - **Async runtime**: tokio (feature `tokio-runtime` on swarm-nl)
-- **Branching**: `main` = templates + shared crates. `dev/<app-name>` = active development.
+- **Branching**: `main` = templates + shared crates. `dev/<app-name>` = complete apps. See `.forge/registry.toml` for the full catalog.
 - **Port allocation**: Each app node starts at `50000 + (app_index * 1000) + (node_index * 100)`. Tests start at `49000`.
 - **Error handling**: No `.unwrap()` in app code. Use `anyhow` or `thiserror`.
 - **UI**: All apps use `forge-ui` for the embedded web server and mesh visualizer. Apps only provide their own application panel (HTML/JS in `static/`).
