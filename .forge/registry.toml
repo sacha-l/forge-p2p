@@ -1,0 +1,33 @@
+# ForgeP2P App Registry
+# Catalog of all apps built in this repo.
+# The agent updates this when planning or completing an app.
+
+[[apps]]
+name = "echo-gossip"
+description = "Peers echo gossip messages back to the network"
+status = "complete"
+branch = "dev/echo-gossip"
+pattern = "gossip"
+steps_total = 5
+steps_done = 5
+created = "2026-04-12"
+
+[[apps]]
+name = "mesh-chat"
+description = "Two-peer gossip chat with dual web UI and mDNS discovery"
+status = "complete"
+branch = "dev/mesh-chat"
+pattern = "gossip"
+steps_total = 8
+steps_done = 8
+created = "2026-04-13"
+
+[[apps]]
+name = "sovereign-notes"
+description = "Distributed note-taking via replication, gossip, and RPC"
+status = "complete"
+branch = "dev/sovereign-notes"
+pattern = "replication+gossip+rpc"
+steps_total = 8
+steps_done = 8
+created = "2026-04-12"

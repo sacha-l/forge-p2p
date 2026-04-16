@@ -1,3 +1,11 @@
+//! The `MeshEvent` enum — wire format for everything forge-ui shows to the
+//! browser. Apps emit these via `UiHandle::push`; forge-ui mirrors a subset
+//! of them into state caches (see `state.rs`) and forwards the rest to the
+//! mesh visualizer and event log.
+//!
+//! Events are tagged externally (`{"type": "PeerConnected", ...}`) so the
+//! JavaScript side can `switch` on `msg.type` without a discriminator helper.
+
 use serde::{Deserialize, Serialize};
 
 /// Network events that apps push to the UI for visualization.
@@ -33,6 +41,15 @@ pub enum MeshEvent {
         network: String,
         status: String,
     },
+    /// forge-ui discovered a peer via one of its discovery backends.
+    /// `source` is "localhost" or "mdns".
+    PeerDiscovered {
+        peer_id: String,
+        addr: String,
+        source: String,
+    },
+    /// A previously discovered peer is no longer reachable via the source.
+    PeerLost { peer_id: String, source: String },
     /// App-specific custom event.
     Custom { label: String, detail: String },
 }

@@ -1,8 +1,14 @@
-// ForgeP2P Mesh Visualizer
-// Vanilla JS SVG — no external dependencies, works offline.
+// ForgeP2P Mesh Visualizer + event bus.
+//
+// This file owns the WebSocket connection to /ws and the SVG mesh graph.
+// Other modules (peers.js, app-specific code) subscribe to events via
+// `window.forgeUI.onEvent.push(handler)` — no second WebSocket needed.
 
 (function () {
   "use strict";
+
+  // --- Cross-module event bus ---
+  window.forgeUI = window.forgeUI || { onEvent: [] };
 
   // --- State ---
   let selfPeerId = null;
@@ -18,8 +24,6 @@
     return { w: r.width || 300, h: r.height || 300 };
   }
 
-  // --- Rendering ---
-
   function computePositions() {
     const { w, h } = svgSize();
     const cx = w / 2;
@@ -27,12 +31,10 @@
     const radius = Math.min(w, h) / 2 - 40;
     const positions = new Map();
 
-    // Self goes at center
     if (selfPeerId && peers.has(selfPeerId)) {
       positions.set(selfPeerId, { x: cx, y: cy });
     }
 
-    // Other peers in a circle around self
     const others = Array.from(peers.keys()).filter(id => id !== selfPeerId);
     const n = others.length || 1;
     others.forEach((id, i) => {
@@ -48,12 +50,10 @@
 
   function updateGraph() {
     if (!svg) return;
-    // Wipe and redraw (small graphs only — fine)
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
     const positions = computePositions();
 
-    // Draw links first (so they sit under nodes)
     for (const link of links.values()) {
       const src = positions.get(link.source);
       const dst = positions.get(link.target);
@@ -68,7 +68,6 @@
       svg.appendChild(line);
     }
 
-    // Draw nodes
     for (const peer of peers.values()) {
       const pos = positions.get(peer.id);
       if (!pos) continue;
@@ -101,20 +100,14 @@
     });
   }
 
-  // Re-layout on window resize
   window.addEventListener("resize", updateGraph);
 
-  // --- Loading phases ---
+  // --- Loading overlay ---
   const loadingEl = document.getElementById("loading");
   const phaseEl = loadingEl ? loadingEl.querySelector(".phase") : null;
 
-  function advancePhase(text) {
-    if (phaseEl) phaseEl.textContent = text;
-  }
-
-  function hideLoading() {
-    if (loadingEl) loadingEl.classList.add("hidden");
-  }
+  function advancePhase(text) { if (phaseEl) phaseEl.textContent = text; }
+  function hideLoading() { if (loadingEl) loadingEl.classList.add("hidden"); }
 
   // --- Event log ---
   const logEl = document.getElementById("log-entries");
@@ -125,10 +118,56 @@
     const el = document.createElement("div");
     el.className = "log-entry " + cssClass;
     const now = new Date().toLocaleTimeString();
-    el.innerHTML = `<span class="time">${now}</span><span class="label">${label}</span>${detail}`;
+    el.innerHTML = `<span class="time">${now}</span><span class="label">${label}</span>${escapeHtml(detail)}`;
     logEl.prepend(el);
     while (logEl.children.length > MAX_LOG) logEl.lastChild.remove();
   }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // --- Node identity card in the header ---
+  const nodePeerIdEl = document.getElementById("node-peer-id");
+  const nodeAddrEl = document.getElementById("node-addr");
+
+  function setNodeCard(peerId, addrs) {
+    if (nodePeerIdEl) {
+      nodePeerIdEl.textContent = peerId || "—";
+      nodePeerIdEl.dataset.value = peerId || "";
+    }
+    if (nodeAddrEl) {
+      const loopback = (addrs || []).find(a => a.startsWith("/ip4/127.0.0.1/")) || (addrs || [])[0] || "";
+      nodeAddrEl.textContent = loopback || "—";
+      nodeAddrEl.dataset.value = loopback || "";
+    }
+  }
+
+  function wireCopy(el) {
+    if (!el) return;
+    el.addEventListener("click", () => {
+      const value = el.dataset.value || el.textContent;
+      if (!value || value === "—") return;
+      navigator.clipboard.writeText(value).then(() => {
+        el.classList.add("copied");
+        setTimeout(() => el.classList.remove("copied"), 700);
+      });
+    });
+  }
+  wireCopy(nodePeerIdEl);
+  wireCopy(nodeAddrEl);
+
+  // --- Tabs ---
+  document.querySelectorAll("#tabs .tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const name = btn.dataset.tab;
+      document.querySelectorAll("#tabs .tab").forEach(b => b.classList.toggle("active", b === btn));
+      document.querySelectorAll(".tab-content").forEach(c => {
+        c.classList.toggle("active", c.id === "tab-" + name);
+      });
+    });
+  });
 
   // --- WebSocket ---
   const statusDot = document.getElementById("status-dot");
@@ -142,31 +181,29 @@
   function connect() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${location.host}/ws`;
-    console.log("[forge-ui] Connecting WebSocket:", url);
     const ws = new WebSocket(url);
 
     ws.onopen = function () {
-      console.log("[forge-ui] WebSocket connected");
       setStatus("connected", "Connected");
       advancePhase("Connected, waiting for node info...");
       setTimeout(hideLoading, 2000);
     };
 
-    ws.onclose = function (e) {
-      console.warn("[forge-ui] WebSocket closed:", e.code, e.reason);
+    ws.onclose = function () {
       setStatus("connecting", "Reconnecting...");
       setTimeout(connect, 2000);
     };
 
-    ws.onerror = function (e) {
-      console.error("[forge-ui] WebSocket error:", e);
-      setStatus("error", "Connection error");
-    };
+    ws.onerror = function () { setStatus("error", "Connection error"); };
 
     ws.onmessage = function (evt) {
       let event;
       try { event = JSON.parse(evt.data); } catch { return; }
       handleEvent(event);
+      // Fan out to subscribed modules (peers.js, app-specific handlers).
+      for (const h of window.forgeUI.onEvent) {
+        try { h(event); } catch (e) { console.error("[forge-ui] handler error:", e); }
+      }
     };
   }
 
@@ -175,6 +212,7 @@
       case "NodeStarted":
         selfPeerId = e.peer_id;
         peers.set(e.peer_id, { id: e.peer_id, addrs: e.listen_addrs });
+        setNodeCard(e.peer_id, e.listen_addrs);
         updateGraph();
         advancePhase("Listening for peers on " + (e.listen_addrs[0] || "..."));
         logEvent("node-started", "NODE", `Started ${shortId(e.peer_id)}`);
@@ -218,6 +256,14 @@
         logEvent("custom", "REPLICA", `${shortId(e.peer_id)} [${e.network}] ${e.status}`);
         break;
 
+      case "PeerDiscovered":
+        logEvent("peer-discovered", "DISCOVER", `${shortId(e.peer_id)} @ ${e.addr} (${e.source})`);
+        break;
+
+      case "PeerLost":
+        logEvent("peer-lost", "LOST", `${shortId(e.peer_id)} (${e.source})`);
+        break;
+
       case "Custom":
         logEvent("custom", e.label, e.detail);
         break;
@@ -229,6 +275,7 @@
     if (peerId.length <= 12) return peerId;
     return peerId.slice(0, 6) + ".." + peerId.slice(-4);
   }
+  window.forgeUI.shortId = shortId;
 
   // --- Init ---
   fetch("/config")
@@ -239,6 +286,16 @@
       document.title = cfg.app_name || "ForgeP2P";
     })
     .catch(err => console.warn("[forge-ui] /config fetch failed:", err));
+
+  // Seed node card from /api/node/info so a late-opened panel still sees identity.
+  fetch("/api/node/info")
+    .then(r => r.ok ? r.json() : null)
+    .then(info => {
+      if (!info) return;
+      if (!selfPeerId) selfPeerId = info.peer_id;
+      setNodeCard(info.peer_id, info.listen_addrs);
+    })
+    .catch(() => {});
 
   setTimeout(hideLoading, 30000);
   connect();

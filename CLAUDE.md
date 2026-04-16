@@ -15,7 +15,7 @@ forge-p2p/
 │   │   └── forge-state.toml        # State template
 │   └── registry.toml               # Catalog of all apps and their status
 ├── shared/                          # Shared crates used by all apps
-│   └── forge-ui/                    # Web UI + mesh visualizer (axum + WebSocket + D3)
+│   └── forge-ui/                    # Web UI + mesh visualizer (axum + WebSocket + vanilla JS)
 │       ├── Cargo.toml
 │       ├── src/                     # Rust: axum server, WS handler, event types
 │       └── static/                  # Frontend: mesh visualizer, layout, styles
@@ -37,7 +37,7 @@ forge-p2p/
 
 - **Rust edition**: 2021
 - **Async runtime**: tokio (feature `tokio-runtime` on swarm-nl)
-- **Branching**: `main` = templates + shared crates. `dev/<app-name>` = active development.
+- **Branching**: `main` = templates + shared crates. `dev/<app-name>` = complete apps. See `.forge/registry.toml` for the full catalog.
 - **Port allocation**: Each app node starts at `50000 + (app_index * 1000) + (node_index * 100)`. Tests start at `49000`.
 - **Error handling**: No `.unwrap()` in app code. Use `anyhow` or `thiserror`.
 - **UI**: All apps use `forge-ui` for the embedded web server and mesh visualizer. Apps only provide their own application panel (HTML/JS in `static/`).
@@ -48,7 +48,7 @@ forge-p2p/
 
 1. **Axum web server** on localhost — one `cargo run` starts both the SwarmNL node and the UI
 2. **WebSocket channel** for pushing real-time network events to the browser
-3. **Mesh visualizer** (D3.js force-directed graph) showing peers, connections, and message flow
+3. **Mesh visualizer** (dependency-free vanilla JS, radial layout) showing peers, connections, and message flow
 4. **Event log** showing network activity in real time
 5. **Loading states and explanations** — when the node is booting, discovering peers, or forming the gossip mesh, the UI shows what's happening and why
 6. **Split layout** — left panel for the app-specific UI, right panel for the mesh visualizer

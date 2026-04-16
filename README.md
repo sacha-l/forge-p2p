@@ -1,12 +1,35 @@
 # ForgeP2P
 
-An agentic workflow for building peer-to-peer applications with [SwarmNL](https://github.com/algorealmInc/SwarmNL).
+Working peer-to-peer apps built on [SwarmNL](https://github.com/algorealmInc/SwarmNL), plus an agentic workflow for adding new ones.
 
 ## What This Is
 
-ForgeP2P pairs a coding agent with structured SwarmNL documentation to build, test, and showcase P2P networked applications. The agent follows a strict plan-implement-test loop with machine-readable state, so it can resume autonomously across sessions and never ship untested code.
+**A growing cookbook of SwarmNL apps.** Read them, run them, copy the patterns. Every app ships with an embedded web UI and a live mesh visualizer via [`forge-ui`](shared/forge-ui/), so you can actually see gossip propagate, peers dial each other, and DHT lookups resolve — not just watch stdout scroll by.
 
-## Quick Start
+**An opinionated agentic workflow for building more.** A coding agent reads the reference docs, plans step-by-step, and implements one step at a time behind a `cargo check + clippy + test` gate. State lives in machine-readable TOML so work resumes across sessions without prose interpretation.
+
+You can use ForgeP2P either way: as a reference implementation of SwarmNL patterns, or as a scaffold to ship a new app with the agent.
+
+## Existing Apps
+
+Each app lives on its own branch with a full README, build instructions, and tests.
+
+| App | Branch | Pattern | What it shows |
+|-----|--------|---------|---------------|
+| **Echo Gossip** | [`dev/echo-gossip`](../../tree/dev/echo-gossip) | gossip | Topic join, broadcast, incoming message handling. The simplest SwarmNL app. |
+| **Mesh Chat** | [`dev/mesh-chat`](../../tree/dev/mesh-chat) | gossip | Two peers auto-discover via mDNS, chat over a shared topic, with a dual-view web UI. |
+| **Sovereign Notes** | [`dev/sovereign-notes`](../../tree/dev/sovereign-notes) | replication + gossip + RPC | Distributed note-taking with CRUD, gossip announcements, and RPC content pull. |
+
+**Try one:**
+
+```sh
+git checkout dev/mesh-chat
+cd apps/mesh-chat
+cargo run
+# open http://localhost:50100 in your browser
+```
+
+## Build Your Own App
 
 ### Prerequisites
 - Rust toolchain (stable, edition 2021)
@@ -47,7 +70,7 @@ forge-p2p/
 │   └── forge-ui/                   # Embedded web UI + mesh visualizer
 │       ├── src/                    # Axum server, WebSocket, MeshEvent
 │       └── static/                 # Vanilla-JS mesh graph, layout, styles
-├── apps/
+├── apps/                            # Empty on main — complete apps live on dev/* branches
 │   └── <app-name>/
 │       ├── forge-state.toml        # Agent state (machine-readable)
 │       ├── plan.toml               # Build plan (machine-readable)
@@ -57,7 +80,8 @@ forge-p2p/
 │       ├── static/                 # App-specific UI panel
 │       ├── tests/
 │       └── README.md
-├── library-feedback.md
+├── library-feedback.md            # Shared SwarmNL papercut log (PR entries upstream!)
+├── CONTRIBUTING.md                # How to PR a library-feedback entry from a fork
 └── README.md
 ```
 
@@ -75,16 +99,20 @@ Every app includes a built-in web dashboard powered by [`forge-ui`](shared/forge
 
 Apps push `MeshEvent`s from their SwarmNL event loop, and the browser updates live over WebSocket. See [shared/forge-ui/README.md](shared/forge-ui/README.md) for integration details.
 
-## App Ideas
+## More App Ideas
 
 | App | Pattern | Showcases |
 |-----|---------|-----------|
-| Echo Gossip | gossip | Topic join, broadcast, incoming message handling |
 | P2P File Index | dht + rpc | DHT store/lookup, RPC data transfer |
-| Chat Room | gossip | Multi-topic pub/sub, peer presence |
 | Replicated KV | replication | Consistency models, replica networks |
 | Sharded Store | sharding | Custom shard algorithms, data forwarding |
 | Sensor Net | gossip + dht | IoT-style broadcast with DHT discovery |
+
+## Using SwarmNL anywhere? Contribute feedback
+
+[`library-feedback.md`](library-feedback.md) is a shared log of SwarmNL API papercuts and workarounds discovered while building real apps. It accumulates across every build so nobody has to rediscover the same issue twice.
+
+**If you hit something in SwarmNL — in this repo, in your own fork, or in an unrelated project — please PR an entry.** A small PR that touches only `library-feedback.md` is the fastest to merge. See [CONTRIBUTING.md](CONTRIBUTING.md) for the 60-second recipe.
 
 ## License
 

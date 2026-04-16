@@ -557,6 +557,8 @@ async fn test_two_nodes_communicate() {
 
 10. **VERIFIED: Import from `swarm_nl::*`, not `swarm_nl::core::prelude::*`**: The `core::prelude` module is private in v0.2.1. All public types are re-exported from the crate root.
 
+11. **VERIFIED: swarm-nl v0.2.1 does NOT wire libp2p mDNS.** The `CoreBehaviour` derives only `request_response`, `kademlia`, `ping`, `identify`, `gossipsub` — no mDNS. If you need local auto-discovery, use `shared/forge-ui`'s mDNS backend (the UI toggle in the Peers tab), which advertises `_forge-p2p._tcp.local.` at the HTTP layer and fires a dial request when a peer is found.
+
 ## 9. Feature Flags
 
 - `tokio-runtime` — Use tokio as the async runtime (recommended)
