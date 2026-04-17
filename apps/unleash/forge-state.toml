@@ -1,0 +1,26 @@
+[app]
+name = "unleash"
+branch = "dev/unleash"
+created = "2026-04-17T18:00:00Z"
+
+[progress]
+total_steps = 6
+current_step = 2
+status = "in-progress"
+last_completed_step = 1
+last_updated = "2026-04-17T18:25:00Z"
+
+[current_step]
+title = "M1 — Transport layer + link model"
+attempt = 1
+files_modified = ["src/swarm_node.rs", "src/link_model.rs", "src/keyspace.rs"]
+
+[blocker]
+step = 0
+description = ""
+is_library_issue = false
+
+[validation]
+last_cargo_check = "pass"
+last_cargo_clippy = "pass"
+last_cargo_test = "pass"

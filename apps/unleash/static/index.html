@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unleash — Disaster Relief Swarm</title>
+  <link rel="stylesheet" href="/app/style.css">
+</head>
+<body>
+  <div id="unleash">
+    <nav id="tabs" role="tablist">
+      <button class="tab active" data-panel="mesh" role="tab">Mesh</button>
+      <button class="tab" data-panel="replication" role="tab">Replication</button>
+      <button class="tab" data-panel="task" role="tab">Tasks</button>
+      <button class="tab" data-panel="consensus" role="tab">Consensus</button>
+      <button class="tab" data-panel="map" role="tab">Map</button>
+    </nav>
+    <section id="panel-mesh" class="panel active"></section>
+    <section id="panel-replication" class="panel"></section>
+    <section id="panel-task" class="panel"></section>
+    <section id="panel-consensus" class="panel"></section>
+    <section id="panel-map" class="panel"></section>
+    <footer id="unleash-footer"><span id="phase">Phase: starting…</span></footer>
+  </div>
+  <script type="module" src="/app/panels/bootstrap.js"></script>
+</body>
+</html>

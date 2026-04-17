@@ -1,0 +1,8 @@
+html,body { margin:0; padding:0; background:#0f1117; color:#e0e3eb; font-family: system-ui, sans-serif; height:100%; }
+#unleash { display:flex; flex-direction:column; height:100vh; }
+#tabs { display:flex; gap:2px; padding:8px; background:#161a22; border-bottom:1px solid #222731; }
+.tab { background:#1d2230; color:#8d96a8; border:0; padding:6px 12px; cursor:pointer; border-radius:4px; font-size:13px; }
+.tab.active { background:#6c9eff; color:#0f1117; }
+.panel { flex:1; padding:16px; display:none; overflow:auto; }
+.panel.active { display:block; }
+#unleash-footer { padding:6px 10px; background:#0b0d12; border-top:1px solid #222731; font-size:12px; color:#8d96a8; }

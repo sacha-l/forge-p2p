@@ -31,3 +31,13 @@ pattern = "replication+gossip+rpc"
 steps_total = 8
 steps_done = 8
 created = "2026-04-12"
+
+[[apps]]
+name = "unleash"
+description = "Heterogeneous robot swarm for disaster relief — every SwarmNL primitive load-bearing"
+status = "in-progress"
+branch = "dev/unleash"
+pattern = "dht+gossip+rpc+replication+sharding"
+steps_total = 6
+steps_done = 1
+created = "2026-04-17"

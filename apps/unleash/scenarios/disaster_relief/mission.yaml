@@ -1,0 +1,52 @@
+mission:
+  id: "disaster_relief_01"
+  objective: "locate_survivors"
+  time_limit_s: 420
+  target_count: 5
+  known_targets:
+    - { id: "s1", pose: { x: 12.3, y: 8.1, z: 1.0 } }
+    - { id: "s2", pose: { x: 28.0, y: 14.5, z: 0.5 } }
+    - { id: "s3", pose: { x: 5.2, y: 20.3, z: 3.2 } }
+  unknown_targets: 2
+  seed: 42
+  initial_tasks:
+    - id: "t_survey"
+      type: survey_area
+      geometry:
+        polygon: [[0,0],[40,0],[40,25],[0,25]]
+      urgency: 0.9
+      required_capability: { survey: 0.8, aerial: 1.0 }
+    - id: "t_perimeter"
+      type: establish_perimeter_mesh
+      geometry:
+        point: [20, 12]
+      urgency: 0.7
+      required_capability: { deploy_node: 0.9, payload: 0.8 }
+    - id: "t_inspect_narrow"
+      type: inspect_poi
+      geometry:
+        point: [15, 18]
+      urgency: 0.8
+      required_capability: { inspect_narrow: 0.9, ground: 1.0 }
+    - id: "t_find_victim_1"
+      type: find_victim
+      geometry:
+        point: [7, 5]
+      urgency: 1.0
+      required_capability: { inspect_narrow: 0.6, victim_contact: 0.9 }
+    - id: "t_relay"
+      type: relay_hold
+      geometry:
+        point: [30, 12]
+      urgency: 0.6
+      required_capability: { relay: 0.9 }
+
+fleet:
+  size: 10
+  composition:
+    aerial_scout: 3
+    aerial_mapper: 1
+    ground_scout: 3
+    ground_workhorse: 2
+    breadcrumb: 8
+  scale_mode: fixed

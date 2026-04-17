@@ -1,0 +1,29 @@
+environment:
+  world: "collapse_4floor"
+  footprint: { x: 40, y: 25 }
+  floors: 4
+  hazards:
+    - type: gas_leak
+      polygon: [[10,5],[18,5],[18,12],[10,12]]
+      risk: 1.0
+      drone_exclusion: true
+    - type: unstable_floor
+      polygon: [[22,0],[30,0],[30,8],[22,8]]
+      risk: 0.8
+      pressure_trigger: true
+  link_profiles:
+    default:  { bandwidth_mbps: 100, latency_ms: 5,  loss: 0.0 }
+    degraded: { bandwidth_mbps: 2,   latency_ms: 80, loss: 0.4 }
+    blackout: { bandwidth_mbps: 0,   latency_ms: 0,  loss: 1.0 }
+  material_attenuation:
+    concrete_wall_db: -40
+    rubble_db: -20
+    free_space_db: 0
+  link_recompute_interval_ms: 500
+  # spawn positions for each robot class; used by the scenario runner
+  spawn_positions:
+    aerial_scout:    [[2, 2, 5], [38, 2, 5], [2, 23, 5]]
+    aerial_mapper:   [[20, 12, 10]]
+    ground_scout:    [[1, 12, 0], [38, 12, 0], [20, 1, 0]]
+    ground_workhorse: [[5, 5, 0], [35, 20, 0]]
+    breadcrumb:      [[10,10,0],[15,15,0],[20,20,0],[25,10,0],[30,15,0],[15,5,0],[25,5,0],[35,10,0]]

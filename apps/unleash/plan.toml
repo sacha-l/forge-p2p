@@ -1,0 +1,78 @@
+[app]
+name = "unleash"
+description = "Heterogeneous robot swarm for disaster relief — every SwarmNL primitive load-bearing"
+primary_pattern = "dht+gossip+rpc+replication+sharding"
+node_count = 11   # 10 robots + 1 observer
+node_roles = "10 robots (3 aerial_scout + 1 aerial_mapper + 3 ground_scout + 2 ground_workhorse + 1 aerial_scout) + 1 observer"
+complexity = "complex"
+
+[dependencies]
+serde_yaml = "0.9"
+rand = "0.8"
+rand_chacha = "0.3"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+reqwest = "0.12"
+clap = "4"
+uuid = "1"
+axum = "0.7"
+
+[[steps]]
+number = 1
+title = "M0 — Scaffold: YAML loaders + single-node smoke test"
+description = "Create app tree, Cargo.toml, mission/environment YAMLs, CLI with subcommands (robot/observer/run), config loader. Verify a single SwarmNL node boots and prints PeerId."
+files = ["Cargo.toml", "src/main.rs", "src/config.rs", "src/keyspace.rs", "scenarios/disaster_relief/*.yaml", "forge-state.toml", "decisions.md"]
+apis = ["BootstrapConfig", "CoreBuilder", "NetworkEvent::NewListenAddr"]
+test_criteria = "`cargo run -- robot --id r0 --class aerial_scout --node-index 0 --scenario scenarios/disaster_relief/ --smoke` starts a node, prints PeerId and listen addrs, exits cleanly within 2s."
+test_command = "cargo check && cargo clippy -- -D warnings && cargo test -p unleash"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 2
+title = "M1 — Transport: swarm_node wrapper + link model + bootnode scheme"
+description = "swarm_node.rs with replication + sharding config. link_model.rs with ray-cast attenuation filtering. Deterministic bootnode allocation. 3-node integration test exercising gossip + RPC under clean vs degraded profile."
+files = ["src/swarm_node.rs", "src/link_model.rs", "src/keyspace.rs", "tests/link_model_unit.rs"]
+apis = ["CoreBuilder::with_replication", "CoreBuilder::with_sharding", "AppData::GossipsubJoinNetwork", "AppData::KademliaStoreRecord", "AppData::SendRpc"]
+test_criteria = "link_model_unit tests pass; 3-node gossip test delivers messages under default, loses ~40% under degraded, 100% under blackout."
+test_command = "cargo test -p unleash"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 3
+title = "M2 — Single-robot sim: kinematics, sensors, all 5 classes"
+description = "2D kinematics with hazard collision. Sensor stubs (LiDAR/RGB/gas). Survivor spawn from seeded randomness. Per-class behaviours. Battery model."
+files = ["src/robot/{mod,kinematics,sensors,aerial_scout,aerial_mapper,ground_scout,ground_workhorse,breadcrumb}.rs"]
+apis = ["AppData::GossipsubBroadcastMessage for pose heartbeat"]
+test_criteria = "Single robot of each class navigates for 60 simulated seconds, pose integrates, sensor outputs vary by position."
+test_command = "cargo test -p unleash"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 4
+title = "M3 — Coordination: CBBA, stigmergy, W-MSR, grid-merge"
+description = "CBBA bundle + bid via RPC + winner gossip. Lamport-KV stigmergy. W-MSR with (2f+1)-robust check. Rendezvous-triggered grid merge."
+files = ["src/coord/{cbba,stigmergy,wmsr,slam}.rs", "tests/cbba_3bot.rs", "tests/stigmergy_partition.rs"]
+apis = ["AppData::SendRpc for bids", "AppData::GossipsubBroadcastMessage", "AppData::KademliaStoreRecord"]
+test_criteria = "3-robot CBBA converges in < 10s with no conflicts. Stigmergy reconciles within 5s after bridge."
+test_command = "cargo test -p unleash"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 5
+title = "M4 — Scenario runner: 4-phase supervisor"
+description = "Spawn N robot processes + observer. State machine for Phase 1 (nominal) → 2 (SIGKILL 2) → 3 (degraded profile broadcast) → 4 (Byzantine flip). Phase reports with all metrics."
+files = ["src/runner/{scenario,supervisor,report}.rs", "src/control.rs"]
+apis = ["tokio::process::Command", "AppData::GossipsubBroadcastMessage for control topic"]
+test_criteria = "Full 420s scenario completes with 4 phase reports; no orphaned tasks; byzantine robot isolated on consensus panel."
+test_command = "cargo test -p unleash -- --ignored runner_e2e"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 6
+title = "M5 — forge-ui dashboard: 5 panels + observer aggregation"
+description = "Observer process: SwarmNL peer subscribing to all topics, hosts forge-ui at :8080. 5-tab panel set (Mesh, Replication, Task, Consensus, Map) rendered in iframe, extended from forge-ui's default mesh view."
+files = ["src/observer/{mod,panels}.rs", "static/index.html", "static/panels/{mesh,replication,task,consensus,map}.js", "static/style.css"]
+apis = ["forge_ui::ForgeUI", "MeshEvent::Custom", "MeshEvent::PeerConnected"]
+test_criteria = "Browser at :8080 shows all 5 tabs during a live run; latency rings expand in Phase 3; byzantine robot appears red on consensus panel."
+test_command = "cargo run -p unleash -- run scenarios/disaster_relief/"
+validation = ["cargo check", "cargo clippy", "cargo test"]
