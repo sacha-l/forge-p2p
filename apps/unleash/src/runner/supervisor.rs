@@ -174,6 +174,20 @@ impl Supervisor {
         Ok(())
     }
 
+    /// Restore link profile to default (used between Phase 3 and Phase 4).
+    pub async fn phase_restore(&mut self) -> Result<()> {
+        if let Some(c) = self.children.iter().find(|c| c.node_index == 0) {
+            if let Some(p) = c.control_port {
+                let _ = reqwest::Client::new()
+                    .post(format!("http://127.0.0.1:{p}/degrade"))
+                    .json(&serde_json::json!({"profile": "default", "duration_ms": 0}))
+                    .send()
+                    .await;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn phase_byzantine(&mut self) -> Result<()> {
         // Flip one ground_scout to byzantine mode.
         if let Some(c) = self

@@ -1,8 +1,193 @@
-html,body { margin:0; padding:0; background:#0f1117; color:#e0e3eb; font-family: system-ui, sans-serif; height:100%; }
-#unleash { display:flex; flex-direction:column; height:100vh; }
-#tabs { display:flex; gap:2px; padding:8px; background:#161a22; border-bottom:1px solid #222731; }
-.tab { background:#1d2230; color:#8d96a8; border:0; padding:6px 12px; cursor:pointer; border-radius:4px; font-size:13px; }
-.tab.active { background:#6c9eff; color:#0f1117; }
-.panel { flex:1; padding:16px; display:none; overflow:auto; }
-.panel.active { display:block; }
-#unleash-footer { padding:6px 10px; background:#0b0d12; border-top:1px solid #222731; font-size:12px; color:#8d96a8; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #0f1117;
+  color: #e0e3eb;
+  font-family: system-ui, sans-serif;
+  height: 100%;
+}
+#unleash {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  height: 100vh;
+}
+#unleash-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #161a22;
+  border-bottom: 1px solid #222731;
+}
+#unleash-header h1 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.4px;
+}
+#summary {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: #8d96a8;
+}
+#summary em {
+  margin-right: 4px;
+  color: #5e6678;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+#summary b {
+  color: #e0e3eb;
+}
+#tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px;
+  background: #161a22;
+  border-bottom: 1px solid #222731;
+}
+.tab {
+  background: #1d2230;
+  color: #8d96a8;
+  border: 0;
+  padding: 6px 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.tab.active {
+  background: #6c9eff;
+  color: #0f1117;
+}
+.panel {
+  padding: 16px;
+  display: none;
+  overflow: auto;
+}
+.panel.active {
+  display: block;
+}
+#unleash-footer {
+  padding: 6px 10px;
+  background: #0b0d12;
+  border-top: 1px solid #222731;
+  font-size: 12px;
+  color: #8d96a8;
+}
+#mesh-svg, #consensus-chart, #repl-chart, #map-canvas {
+  width: 100%;
+  background: #0b0d12;
+  border: 1px solid #222731;
+  border-radius: 4px;
+  max-height: calc(100vh - 180px);
+}
+.mesh-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: #8d96a8;
+  margin-top: 8px;
+}
+.ring {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.ring.green { border-color: #3e8a5a; }
+.ring.amber { border-color: #c19a3c; }
+.ring.red { border-color: #c13c3c; }
+
+.task-card {
+  background: #161a22;
+  border: 1px solid #222731;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.task-id {
+  font-weight: 600;
+}
+.task-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+.task-status.assigned {
+  background: #3e8a5a;
+  color: #0f1117;
+}
+.task-status.bidding {
+  background: #c19a3c;
+  color: #0f1117;
+}
+.task-body {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  font-size: 12px;
+}
+.task-body em {
+  color: #5e6678;
+  font-style: normal;
+  text-transform: uppercase;
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+.empty {
+  color: #5e6678;
+  padding: 16px;
+  font-style: italic;
+}
+.swim-row {
+  display: grid;
+  grid-template-columns: 120px 40px 1fr;
+  gap: 10px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #1d2230;
+  font-size: 12px;
+}
+.swim-id { color: #8d96a8; }
+.swim-count { color: #06d6a0; text-align: right; }
+.swim-peers span {
+  background: #1d2230;
+  padding: 2px 6px;
+  border-radius: 2px;
+  margin-right: 4px;
+  color: #e0e3eb;
+}
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #1d2230;
+  padding: 2px 8px;
+  margin: 2px 4px;
+  border-radius: 2px;
+  font-size: 11px;
+}
+.legend-chip i {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+}
+h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #8d96a8;
+  margin: 12px 0 6px;
+}

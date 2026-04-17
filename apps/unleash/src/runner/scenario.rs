@@ -27,6 +27,8 @@ pub async fn run(args: RunArgs) -> Result<()> {
     // Phase 3 — Comms degradation at t=180s
     sup.phase_degrade().await?;
     run_phase(&mut sup, "Phase 3 — Degraded", Duration::from_secs(120), start, |_| async { Ok(()) }).await?;
+    // Restore link profile before Phase 4.
+    sup.phase_restore().await?;
 
     // Phase 4 — Byzantine at t=300s
     sup.phase_byzantine().await?;

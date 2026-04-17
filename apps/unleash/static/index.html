@@ -8,6 +8,15 @@
 </head>
 <body>
   <div id="unleash">
+    <header id="unleash-header">
+      <h1>Unleash</h1>
+      <div id="summary">
+        <span><em>robots</em> <b id="s-robots">0</b></span>
+        <span><em>tasks</em> <b id="s-tasks">0</b></span>
+        <span><em>survivors</em> <b id="s-survivors">0</b></span>
+        <span><em>link</em> <b id="s-link">default</b></span>
+      </div>
+    </header>
     <nav id="tabs" role="tablist">
       <button class="tab active" data-panel="mesh" role="tab">Mesh</button>
       <button class="tab" data-panel="replication" role="tab">Replication</button>
@@ -15,11 +24,31 @@
       <button class="tab" data-panel="consensus" role="tab">Consensus</button>
       <button class="tab" data-panel="map" role="tab">Map</button>
     </nav>
-    <section id="panel-mesh" class="panel active"></section>
-    <section id="panel-replication" class="panel"></section>
-    <section id="panel-task" class="panel"></section>
-    <section id="panel-consensus" class="panel"></section>
-    <section id="panel-map" class="panel"></section>
+    <section id="panel-mesh" class="panel active">
+      <svg id="mesh-svg" viewBox="0 0 800 500" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="mesh-legend">
+        <span><i class="ring green"></i>default</span>
+        <span><i class="ring amber"></i>degraded</span>
+        <span><i class="ring red"></i>blackout</span>
+      </div>
+    </section>
+    <section id="panel-replication" class="panel">
+      <h3>Survivor replication swimlanes</h3>
+      <div id="repl-swimlanes"></div>
+      <h3>Replication lag (p50/p95, ms)</h3>
+      <svg id="repl-chart" viewBox="0 0 800 200"></svg>
+    </section>
+    <section id="panel-task" class="panel">
+      <div id="task-cards"></div>
+    </section>
+    <section id="panel-consensus" class="panel">
+      <h3>W-MSR estimates (victim_count)</h3>
+      <svg id="consensus-chart" viewBox="0 0 800 300"></svg>
+      <div id="consensus-legend"></div>
+    </section>
+    <section id="panel-map" class="panel">
+      <canvas id="map-canvas" width="800" height="500"></canvas>
+    </section>
     <footer id="unleash-footer"><span id="phase">Phase: starting…</span></footer>
   </div>
   <script type="module" src="/app/panels/bootstrap.js"></script>

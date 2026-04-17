@@ -1,7 +1,6 @@
 //! Per-robot HTTP control port. Used by the scenario runner to inject
-//! test-only signals (Byzantine flip, emergency shutdown).
-//!
-//! Stubbed in M0; wired into the robot event loop in M4.
+//! test-only signals (Byzantine flip, emergency shutdown, link-profile
+//! override to be relayed via gossip).
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,17 +9,28 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::{extract::State, routing::post, Json, Router};
 use serde::Deserialize;
+use tokio::sync::mpsc;
 
-/// Shared state between a robot and its control port.
-#[derive(Debug, Default)]
+use crate::keyspace::LinkProfileOverride;
+
+#[derive(Debug)]
 pub struct ControlFlags {
     pub byzantine: AtomicBool,
     pub killswitch: AtomicBool,
+    /// When a Phase 3 override arrives, we push it here for the robot's
+    /// net loop to broadcast on the control topic.
+    pub link_override_tx: Mutex<Option<mpsc::Sender<LinkProfileOverride>>>,
 }
+
+use tokio::sync::Mutex;
 
 impl ControlFlags {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self::default())
+        Arc::new(Self {
+            byzantine: AtomicBool::new(false),
+            killswitch: AtomicBool::new(false),
+            link_override_tx: Mutex::new(None),
+        })
     }
 
     pub fn is_byzantine(&self) -> bool {
@@ -30,11 +40,36 @@ impl ControlFlags {
     pub fn is_killed(&self) -> bool {
         self.killswitch.load(Ordering::Relaxed)
     }
+
+    pub async fn set_link_override_sink(&self, tx: mpsc::Sender<LinkProfileOverride>) {
+        *self.link_override_tx.lock().await = Some(tx);
+    }
+}
+
+impl Default for ControlFlags {
+    fn default() -> Self {
+        Self {
+            byzantine: AtomicBool::new(false),
+            killswitch: AtomicBool::new(false),
+            link_override_tx: Mutex::new(None),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 struct ByzReq {
     byzantine: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct DegradeReq {
+    profile: String,
+    #[serde(default = "default_duration")]
+    duration_ms: u64,
+}
+
+fn default_duration() -> u64 {
+    120_000
 }
 
 pub async fn serve(port: u16, flags: Arc<ControlFlags>) -> Result<()> {
@@ -51,6 +86,21 @@ pub async fn serve(port: u16, flags: Arc<ControlFlags>) -> Result<()> {
             post(|State(f): State<Arc<ControlFlags>>| async move {
                 f.killswitch.store(true, Ordering::Relaxed);
                 Json(serde_json::json!({"killed": true}))
+            }),
+        )
+        .route(
+            "/degrade",
+            post(|State(f): State<Arc<ControlFlags>>, Json(b): Json<DegradeReq>| async move {
+                let sink = f.link_override_tx.lock().await.clone();
+                let msg = LinkProfileOverride {
+                    profile: b.profile.clone(),
+                    started_at_ms: crate::keyspace::now_ms(),
+                    duration_ms: b.duration_ms,
+                };
+                if let Some(tx) = sink {
+                    let _ = tx.send(msg).await;
+                }
+                Json(serde_json::json!({"profile": b.profile, "duration_ms": b.duration_ms}))
             }),
         )
         .with_state(flags);

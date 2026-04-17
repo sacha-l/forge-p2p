@@ -17,6 +17,7 @@ use clap::{Parser, Subcommand};
 
 mod config;
 mod control;
+mod coord;
 mod keyspace;
 mod link_model;
 mod observer;

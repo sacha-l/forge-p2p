@@ -290,9 +290,3 @@ impl Aggregator {
     }
 }
 
-// Keep a reference so rustc sees fields as used; wire in M5.
-#[allow(dead_code)]
-fn _refs(m: &Mission, e: &Environment) {
-    let _ = &m.mission.time_limit_s;
-    let _ = &e.environment.footprint;
-}
