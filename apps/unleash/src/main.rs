@@ -60,7 +60,7 @@ enum Command {
     Observer {
         #[arg(long)]
         scenario: PathBuf,
-        #[arg(long, default_value_t = 8080)]
+        #[arg(long, default_value_t = 8088)]
         ui_port: u16,
         #[arg(long, default_value_t = 53900)]
         tcp_port: u16,
@@ -70,7 +70,7 @@ enum Command {
     /// Run the full scenario: spawn robots + observer, drive 4 phases.
     Run {
         scenario: PathBuf,
-        #[arg(long, default_value_t = 8080)]
+        #[arg(long, default_value_t = 8088)]
         ui_port: u16,
         /// Path to the unleash binary; defaults to the current executable.
         #[arg(long)]
@@ -161,8 +161,11 @@ fn init_tracing() {
     use tracing_subscriber::{fmt, EnvFilter};
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,swarm_nl=warn,h2=warn,hyper=warn,reqwest=warn"));
+    // Logs go to stderr so stdout stays clean for the scenario runner's
+    // UNLEASH_*_READY handshake and any subsequent programmatic parsing.
     fmt()
         .with_env_filter(filter)
+        .with_writer(std::io::stderr)
         .with_target(false)
         .with_line_number(false)
         .compact()

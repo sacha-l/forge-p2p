@@ -5,15 +5,20 @@ created = "2026-04-17T18:00:00Z"
 
 [progress]
 total_steps = 6
-current_step = 2
-status = "in-progress"
-last_completed_step = 1
-last_updated = "2026-04-17T18:25:00Z"
+current_step = 6
+status = "complete"
+last_completed_step = 6
+last_updated = "2026-04-17T19:50:00Z"
 
 [current_step]
-title = "M1 — Transport layer + link model"
+title = "M5 — dashboard complete; runtime hardening tracked in KNOWN_ISSUES.md"
 attempt = 1
-files_modified = ["src/swarm_node.rs", "src/link_model.rs", "src/keyspace.rs"]
+files_modified = [
+  "static/",
+  "src/observer/mod.rs",
+  "src/observer/panels.rs",
+  "src/robot/mod.rs",
+]
 
 [blocker]
 step = 0

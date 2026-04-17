@@ -92,12 +92,19 @@ pub async fn run(args: Args) -> Result<()> {
     if let Err(e) = control::serve(control_port, flags.clone()).await {
         tracing::warn!(error = ?e, port = control_port, "control port failed to bind");
     }
+    tracing::info!("control port bound; joining gossip topics");
 
-    // Join all gossip topics + replication network
+    // Join all gossip topics + replication network. Both calls are
+    // fire-and-forget — awaiting them blocks until a quorum of peers ACK,
+    // which never happens before our own startup completes (chicken/egg).
     join_core_topics(&mut node).await;
-    let _ = node
-        .join_repl_network(keyspace::REPL_SURVIVORS.to_string())
-        .await;
+    tracing::info!("gossip topics joined; joining replication network");
+    let _ = tokio::time::timeout(
+        Duration::from_secs(2),
+        node.join_repl_network(keyspace::REPL_SURVIVORS.to_string()),
+    )
+    .await;
+    tracing::info!("replication network join dispatched");
 
     // Coordination state
     let cap = args.class.capability();
@@ -136,14 +143,29 @@ pub async fn run(args: Args) -> Result<()> {
 
     let node = Arc::new(Mutex::new(node));
 
+    tracing::info!("sleeping 5s for gossipsub mesh warmup");
     // Wait for gossipsub mesh to warm up before first broadcast
     // (library-feedback #5).
     tokio::time::sleep(Duration::from_secs(5)).await;
+    tracing::info!("warmup complete");
 
-    // Robot 0 announces the initial task pool.
+    // Robot 0 announces the initial task pool — once now, and every 10 s
+    // thereafter so late-joining peers pick up the auction. Fire-and-forget
+    // so mesh warmup doesn't block us.
     if args.node_index == 0 {
         announce_initial_tasks(&node, &args.mission).await;
+        let node_ann = Arc::clone(&node);
+        let mission_ann = args.mission.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(10));
+            ticker.tick().await; // drop the immediate fire
+            loop {
+                ticker.tick().await;
+                announce_initial_tasks(&node_ann, &mission_ann).await;
+            }
+        });
     }
+    tracing::info!("spawning pose/coord/net tasks");
 
     // Spawn the three loops.
     let pose_task = spawn_pose_loop(
@@ -193,7 +215,7 @@ pub async fn run(args: Args) -> Result<()> {
             relay_state.set_global_override(profile);
             let mut n = relay_node.lock().await;
             let _ = n
-                .query_network(AppData::GossipsubBroadcastMessage {
+                .send_to_network(AppData::GossipsubBroadcastMessage {
                     topic: TOPIC_CONTROL_LINK.to_string(),
                     message: encode(&lp),
                 })
@@ -212,10 +234,15 @@ pub async fn run(args: Args) -> Result<()> {
 }
 
 async fn join_core_topics(node: &mut Core) {
+    // Fire-and-forget: `query_network` blocks waiting for a response even
+    // when the gossip mesh has no peers to confirm the subscription, which
+    // costs ~3 s per topic. `send_to_network` returns a stream id
+    // immediately; the subscription still lands in the gossipsub routing
+    // table before the first `next_event` poll.
     for topic in keyspace::default_topics() {
         let req = AppData::GossipsubJoinNetwork(topic.to_string());
-        if let Err(e) = node.query_network(req).await {
-            tracing::warn!(topic, error = ?e, "gossip join failed");
+        if node.send_to_network(req).await.is_none() {
+            tracing::warn!(topic, "gossip join send failed");
         }
     }
 }
@@ -227,11 +254,11 @@ async fn announce_initial_tasks(node: &Arc<Mutex<Core>>, mission: &Mission) {
             topic: TOPIC_TASK_ANNOUNCE.to_string(),
             message: encode(t),
         };
-        if let Err(e) = n.query_network(req).await {
-            tracing::warn!(task = %t.id, error = ?e, "task announce failed");
-        } else {
-            tracing::info!(task = %t.id, "announced");
-        }
+        // Fire-and-forget — query_network blocks until the gossip mesh
+        // has peers, which it doesn't yet during warmup. The periodic
+        // re-announce loop picks up any dropped announcements.
+        let _ = n.send_to_network(req).await;
+        tracing::info!(task = %t.id, "announce dispatched");
     }
 }
 
@@ -307,7 +334,7 @@ fn spawn_pose_loop(
                     // Gossip + replicate
                     let mut n = node.lock().await;
                     let _ = n
-                        .query_network(AppData::GossipsubBroadcastMessage {
+                        .send_to_network(AppData::GossipsubBroadcastMessage {
                             topic: TOPIC_SURVIVOR.to_string(),
                             message: encode(&report),
                         })
@@ -332,7 +359,7 @@ fn spawn_pose_loop(
             {
                 let mut n = node.lock().await;
                 let _ = n
-                    .query_network(AppData::GossipsubBroadcastMessage {
+                    .send_to_network(AppData::GossipsubBroadcastMessage {
                         topic: TOPIC_POSE.to_string(),
                         message: encode(&hb),
                     })
@@ -345,7 +372,7 @@ fn spawn_pose_loop(
                 if !chunk.cells.is_empty() {
                     let mut n = node.lock().await;
                     let _ = n
-                        .query_network(AppData::GossipsubBroadcastMessage {
+                        .send_to_network(AppData::GossipsubBroadcastMessage {
                             topic: TOPIC_MAP_MERGE.to_string(),
                             message: encode(&chunk),
                         })
@@ -421,7 +448,7 @@ fn spawn_coord_loop(
             {
                 let mut n = node.lock().await;
                 let _ = n
-                    .query_network(AppData::GossipsubBroadcastMessage {
+                    .send_to_network(AppData::GossipsubBroadcastMessage {
                         topic: TOPIC_BUNDLE.to_string(),
                         message: encode(&ba),
                     })
@@ -433,7 +460,7 @@ fn spawn_coord_loop(
             {
                 let mut n = node.lock().await;
                 let _ = n
-                    .query_network(AppData::GossipsubBroadcastMessage {
+                    .send_to_network(AppData::GossipsubBroadcastMessage {
                         topic: TOPIC_CONSENSUS_VICTIM.to_string(),
                         message: encode(&cv),
                     })
@@ -452,7 +479,7 @@ fn spawn_coord_loop(
                     };
                     let mut n = node.lock().await;
                     let _ = n
-                        .query_network(AppData::GossipsubBroadcastMessage {
+                        .send_to_network(AppData::GossipsubBroadcastMessage {
                             topic: TOPIC_STIGMERGY.to_string(),
                             message: encode(&su),
                         })
@@ -559,7 +586,7 @@ async fn dispatch_event(
                 if let Some(bid) = cbba.on_task_announce(ts, pose) {
                     let mut n = node.lock().await;
                     let _ = n
-                        .query_network(AppData::GossipsubBroadcastMessage {
+                        .send_to_network(AppData::GossipsubBroadcastMessage {
                             topic: TOPIC_BID.to_string(),
                             message: encode(&bid),
                         })
@@ -571,7 +598,7 @@ async fn dispatch_event(
                 if let Some(winner) = cbba.on_bid(bid) {
                     let mut n = node.lock().await;
                     let _ = n
-                        .query_network(AppData::GossipsubBroadcastMessage {
+                        .send_to_network(AppData::GossipsubBroadcastMessage {
                             topic: TOPIC_TASK_WINNER.to_string(),
                             message: encode(&winner),
                         })
@@ -601,7 +628,7 @@ async fn dispatch_event(
                 let up = stigmergy.set(&format!("survivor/{}", sr.survivor_id), &sr.detected_by);
                 let mut n = node.lock().await;
                 let _ = n
-                    .query_network(AppData::GossipsubBroadcastMessage {
+                    .send_to_network(AppData::GossipsubBroadcastMessage {
                         topic: TOPIC_STIGMERGY.to_string(),
                         message: encode(&up),
                     })

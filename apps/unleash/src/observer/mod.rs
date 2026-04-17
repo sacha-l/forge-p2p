@@ -50,14 +50,17 @@ pub async fn run(args: Args) -> Result<()> {
         swarm_node::loopback_multiaddr(tcp_port)
     );
 
-    // Subscribe to every Unleash topic.
+    // Subscribe to every Unleash topic (fire-and-forget; see robot/mod.rs
+    // for the backpressure-avoidance rationale).
     for topic in keyspace::default_topics() {
         let req = swarm_nl::core::AppData::GossipsubJoinNetwork(topic.to_string());
-        let _ = node.query_network(req).await;
+        let _ = node.send_to_network(req).await;
     }
-    let _ = node
-        .join_repl_network(keyspace::REPL_SURVIVORS.to_string())
-        .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(2),
+        node.join_repl_network(keyspace::REPL_SURVIVORS.to_string()),
+    )
+    .await;
 
     // Start forge-ui.
     let static_dir = resolve_static_dir()?;

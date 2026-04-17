@@ -64,27 +64,35 @@ pub fn format_bootstrap(peer_id: &str, addr: &str) -> String {
     format!("{peer_id}@{addr}")
 }
 
-/// Drain `NewListenAddr` events from the node and return (peer_id_string, local_loopback_addr).
+/// Drain `NewListenAddr` events from the node and return
+/// `(peer_id_string, listen_addrs)`.
 ///
-/// Per `library-feedback.md` #6, uses loopback address explicitly so in-process
-/// tests and multi-process spawns on the same host can dial each other.
+/// `next_event()` is non-blocking (library-feedback #4), so we poll with a
+/// short sleep. We collect events for up to `total_ms` total — the first
+/// `NewListenAddr` sets `peer_id`; subsequent ones add listen addresses.
+/// Other events encountered during this window are discarded (they're
+/// internal chatter before the app has joined any topic).
 pub async fn drain_listen_addrs(node: &mut Core) -> (String, Vec<String>) {
+    let total_ms = 1_500u64;
+    let tick_ms = 50u64;
+    let ticks = total_ms / tick_ms;
     let mut peer_id = String::new();
-    let mut addrs = Vec::new();
-    // read whatever is buffered right now; the caller has already waited for
-    // `build()` to complete so at least one address should be enqueued
-    while let Some(event) = node.next_event().await {
-        if let NetworkEvent::NewListenAddr {
-            local_peer_id,
-            address,
-            ..
-        } = event
-        {
-            peer_id = local_peer_id.to_string();
-            addrs.push(address.to_string());
-        } else {
-            // first non-listen event -- stop draining
-            break;
+    let mut addrs: Vec<String> = Vec::new();
+    for _ in 0..ticks {
+        while let Some(event) = node.next_event().await {
+            if let NetworkEvent::NewListenAddr {
+                local_peer_id,
+                address,
+                ..
+            } = event
+            {
+                peer_id = local_peer_id.to_string();
+                addrs.push(address.to_string());
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(tick_ms)).await;
+        if !peer_id.is_empty() && !addrs.is_empty() {
+            // We have enough to proceed. Remaining discard window is short.
         }
     }
     (peer_id, addrs)
