@@ -359,6 +359,55 @@ h3 {
 /* key events feed */
 .key-events .log { max-height: 180px; }
 
+/* task briefing cards on the Mission panel */
+.task-briefing .brief-sub {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+.task-briefing-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+}
+.task-brief-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.task-brief-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.task-id-chip {
+  background: var(--bg-card);
+  color: var(--text-soft);
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.task-urgency {
+  margin-left: auto;
+  color: var(--warn-text);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+.task-brief-meaning {
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.task-brief-who {
+  color: var(--text-soft);
+  font-size: 11px;
+}
+.task-brief-who b { color: var(--text); }
+
 /* ---------- legend strip ---------- */
 .legend-strip {
   display: flex;

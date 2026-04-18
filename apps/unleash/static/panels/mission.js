@@ -44,6 +44,12 @@ export function initMission(root, { keyEventsEl } = {}) {
       </table>
     </section>
 
+    <section class="task-briefing">
+      <h2>Tasks in this scenario</h2>
+      <p class="brief-sub">Each task is a bid target. CBBA score = <code>dot(my_capability, required_capability) · urgency − α·distance − β·risk</code>. The "winner" is the robot whose bid currently leads; winners converge as gossip propagates. A winner can change if a closer robot announces or the current winner is killed.</p>
+      <div id="task-briefing-body" class="task-briefing-body"></div>
+    </section>
+
     <section class="key-events">
       <h2>Recent key events</h2>
       <div id="key-events-body" class="log"></div>
@@ -54,6 +60,7 @@ export function initMission(root, { keyEventsEl } = {}) {
   const timelineEl = root.querySelector("#timeline-bar");
   const timelineCur = root.querySelector("#timeline-current");
   const rosterBody = root.querySelector("#roster-body");
+  const taskBriefingBody = root.querySelector("#task-briefing-body");
   const keyEvents = root.querySelector("#key-events-body");
 
   // Initial briefing render when mission loads.
@@ -85,6 +92,28 @@ export function initMission(root, { keyEventsEl } = {}) {
     `;
     renderRoster(mission);
     renderTimelineSegments(mission);
+    renderTaskBriefing(mission);
+  }
+
+  function renderTaskBriefing(mission) {
+    const tasks = mission?.initial_tasks || [];
+    if (!tasks.length) {
+      taskBriefingBody.innerHTML = '<div class="empty">No tasks in mission briefing.</div>';
+      return;
+    }
+    taskBriefingBody.innerHTML = tasks
+      .map((t) => `
+        <div class="task-brief-card">
+          <div class="task-brief-head">
+            <b>${escape(t.pretty)}</b>
+            <code class="task-id-chip">${escape(t.id)}</code>
+            <span class="task-urgency" title="Urgency weight (higher = more important)">urgency ${Number(t.urgency).toFixed(1)}</span>
+          </div>
+          <div class="task-brief-meaning">${taskMeaning(t.kind)}</div>
+          <div class="task-brief-who">${winnerHint(t.kind)}</div>
+        </div>
+      `)
+      .join("");
   }
 
   function renderRoster(mission) {
@@ -166,23 +195,56 @@ export function initMission(root, { keyEventsEl } = {}) {
     const resolved = resolvedTasks();
     const totalTasks = mission?.initial_tasks?.length ?? store.tasks.size;
     const alive = aliveRobots();
-    const spawned = mission?.fleet?.size || Math.max(store.robots.size, 1);
+    // Use the sum of composition fields, not mission.fleet.size — that field
+    // only counts mobile robots. Breadcrumb relays are also spawned processes.
+    const comp = mission?.fleet || {};
+    const spawned =
+      (comp.aerial_scout || 0) +
+      (comp.aerial_mapper || 0) +
+      (comp.ground_scout || 0) +
+      (comp.ground_workhorse || 0) +
+      (comp.breadcrumb || 0) ||
+      Math.max(store.robots.size, 1);
     const bat = avgBattery();
     const peerAvg = alive.length
       ? Math.round((alive.length - 1 + store.peers.size) / Math.max(alive.length, 1) * 10) / 10
       : 0;
     const variance = consensusVariance();
     const cards = [
-      card("Survivors", `${survivorsFound}/${totalTargets}`, "located / total"),
-      card("Tasks", `${resolved}/${totalTasks}`, "with a winner / announced"),
-      card("Robots alive", `${alive.length}/${spawned}`, "reporting within 6s / spawned"),
-      card("Avg battery", bat === null ? "—" : `${Math.round(bat * 100)}%`, "mean across alive fleet"),
-      card("Mesh peers / robot", peerAvg.toFixed(1), "avg visible peers per robot"),
-      card("Link profile", store.linkOverride, LINK_PROFILES[store.linkOverride]?.description || "—"),
+      card(
+        "Survivors",
+        `${survivorsFound}/${totalTargets}`,
+        `${survivorsFound} located via gossip · ${totalTargets} to find (${mission?.known_survivors?.length || 0} known at launch, ${mission?.unknown_count || 0} randomised)`,
+      ),
+      card(
+        "Tasks",
+        `${resolved}/${totalTasks}`,
+        "tasks with a CBBA winner / total announced · a winner is the robot whose bid currently leads",
+      ),
+      card(
+        "Robots alive",
+        `${alive.length}/${spawned}`,
+        `robots whose pose heartbeat arrived in the last 6 s / total spawned (all classes, breadcrumbs included)`,
+      ),
+      card(
+        "Avg battery",
+        bat === null ? "—" : `${Math.round(bat * 100)}%`,
+        "mean across alive fleet · each class drains at a different rate",
+      ),
+      card(
+        "Mesh peers / robot",
+        peerAvg.toFixed(1),
+        "avg peer count visible in the observer's gossip mesh",
+      ),
+      card(
+        "Link profile",
+        store.linkOverride,
+        LINK_PROFILES[store.linkOverride]?.description || "—",
+      ),
       card(
         "Consensus variance",
         variance.toFixed(2),
-        "std dev across W-MSR values · 0 = converged",
+        "std dev across W-MSR victim-count estimates · 0 = all honest robots agree",
       ),
       card(
         "Event clock",
@@ -225,4 +287,45 @@ function PHASE_FULL_LABEL(k) {
 
 function escape(s) {
   return String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]);
+}
+
+// One-line human description of every task kind used in the reference scenario.
+function taskMeaning(kind) {
+  switch (kind) {
+    case "survey_area":
+      return "Cover the full footprint from altitude to build the initial map.";
+    case "establish_perimeter_mesh":
+      return "Drop static breadcrumb relays at connectivity bottlenecks so the mesh survives link failures.";
+    case "inspect_poi":
+      return "Enter an interior void too small for aerial vehicles and inspect it.";
+    case "find_victim":
+      return "Make physical contact with a specific survivor and report position + state.";
+    case "relay_hold":
+      return "Hold a stationary position so gossip can hop through this robot as a relay.";
+    case "deploy_node":
+      return "Drop a single breadcrumb node at a specific point.";
+    case "escort":
+      return "Escort another robot while it performs a task.";
+    default:
+      return `Custom task kind: ${kind}.`;
+  }
+}
+
+// Who's likely to win this task, derived from the capability-vector match.
+function winnerHint(kind) {
+  switch (kind) {
+    case "survey_area":
+      return "<b>Likely winner:</b> Aerial Scout or Aerial Mapper — only they have <code>aerial=1.0</code>.";
+    case "establish_perimeter_mesh":
+    case "deploy_node":
+      return "<b>Likely winner:</b> Ground Workhorse — only class with <code>deploy_node</code> + <code>payload</code>.";
+    case "inspect_poi":
+      return "<b>Likely winner:</b> Ground Scout — highest <code>inspect_narrow</code>.";
+    case "find_victim":
+      return "<b>Likely winner:</b> Ground Scout — only class with <code>victim_contact</code>.";
+    case "relay_hold":
+      return "<b>Likely winner:</b> Aerial Mapper or Ground Workhorse — both score <code>relay=1.0</code>.";
+    default:
+      return "";
+  }
 }

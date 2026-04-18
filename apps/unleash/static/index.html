@@ -39,7 +39,9 @@
     </section>
 
     <section id="panel-task" class="panel">
-      <p class="panel-caption">Live CBBA auction state. Each card is one announced task; the winner is the robot currently leading the bid. A task moves <span class="inline-badge assigned">assigned</span> once any bid is in, and updates every time a higher-scoring bid arrives.</p>
+      <p class="panel-caption">
+        Live CBBA auction state. Each card is one announced task. Every robot computes its own bid score locally — score = <code>dot(my_capability, required_capability) · urgency − α·distance − β·risk</code> — and publishes bids over gossip. The <b>winner</b> is the robot whose bid is currently the highest; winners propagate on the <code>unleash/task_winner</code> topic. A task shows <span class="inline-badge assigned">assigned</span> once any bid has been recorded, and its winner may still change as better bids arrive (or if the current winner is killed / blacklisted).
+      </p>
       <div id="task-cards"></div>
     </section>
 
