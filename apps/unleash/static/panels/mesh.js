@@ -1,25 +1,25 @@
 // Mesh panel: 2D top-down view of the environment footprint with robots as
 // icons, connections as colour-coded links, and a latency-ring overlay per
 // robot that expands under degraded conditions.
+//
+// Hooks:
+//   onRobotClick(robot_id)  — delegate for inspector drawer
+//   setClassFilter(set)     — dim robots whose class is NOT in the set
+//   setEnv(env)             — refresh footprint / hazards after /api/mission
 
-const CLASS_COLOUR = {
-  aerial_scout: "#6c9eff",
-  aerial_mapper: "#8df0c5",
-  ground_scout: "#ffa657",
-  ground_workhorse: "#d78cff",
-  breadcrumb: "#8d96a8",
-};
+import { CLASSES, classMeta, prettyRobotId } from "/app/panels/classes.js";
 
-export function initMesh(svg, env) {
+export function initMesh(svg, initialEnv, { onRobotClick } = {}) {
   const robots = new Map(); // robot_id -> {class, pose, status}
   let linkOverride = null;
-  const footprint = env.footprint || { x: 40, y: 25 };
+  let env = initialEnv;
+  let classFilter = null; // null = show all
 
   function vx(x) {
-    return (x / footprint.x) * 800;
+    return (x / (env.footprint?.x || 40)) * 800;
   }
   function vy(y) {
-    return 500 - (y / footprint.y) * 500;
+    return 500 - (y / (env.footprint?.y || 25)) * 500;
   }
 
   function render() {
@@ -33,18 +33,29 @@ export function initMesh(svg, env) {
     rect.setAttribute("fill", "#0b0d12");
     svg.appendChild(rect);
 
-    // Hazards first
     (env.hazards || []).forEach((h) => {
       const pts = h.polygon.map(([x, y]) => `${vx(x)},${vy(y)}`).join(" ");
       const poly = document.createElementNS(ns, "polygon");
       poly.setAttribute("points", pts);
-      poly.setAttribute("fill", h.type === "gas_leak" ? "#c13c3c33" : "#c19a3c33");
-      poly.setAttribute("stroke", h.type === "gas_leak" ? "#c13c3c" : "#c19a3c");
+      poly.setAttribute("fill", h.kind === "gas_leak" ? "#c13c3c33" : "#c19a3c33");
+      poly.setAttribute("stroke", h.kind === "gas_leak" ? "#c13c3c" : "#c19a3c");
       poly.setAttribute("stroke-width", 1);
       svg.appendChild(poly);
+      // label
+      if (h.polygon.length) {
+        const cx = h.polygon.reduce((s, p) => s + p[0], 0) / h.polygon.length;
+        const cy = h.polygon.reduce((s, p) => s + p[1], 0) / h.polygon.length;
+        const t = document.createElementNS(ns, "text");
+        t.setAttribute("x", vx(cx));
+        t.setAttribute("y", vy(cy));
+        t.setAttribute("fill", h.kind === "gas_leak" ? "#ff9696" : "#ffd488");
+        t.setAttribute("font-size", 10);
+        t.setAttribute("text-anchor", "middle");
+        t.textContent = h.kind.replace("_", " ");
+        svg.appendChild(t);
+      }
     });
 
-    // Links between robots (naive: full graph within 15m, coloured by override)
     const ids = [...robots.keys()];
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
@@ -67,40 +78,55 @@ export function initMesh(svg, env) {
               : "#3e8a5a";
         line.setAttribute("stroke", colour);
         line.setAttribute("stroke-width", 1);
-        line.setAttribute("opacity", 0.6);
+        line.setAttribute("opacity", 0.55);
         svg.appendChild(line);
       }
     }
 
-    // Latency rings + robot dots
     const ringRadius =
       linkOverride === "degraded" ? 28 : linkOverride === "blackout" ? 40 : 12;
     robots.forEach((r) => {
       const cx = vx(r.pose.x);
       const cy = vy(r.pose.y);
+      const meta = classMeta(r.class);
+      const dim =
+        classFilter && !classFilter.has(r.class) ? 0.15 : 1.0;
       const ring = document.createElementNS(ns, "circle");
       ring.setAttribute("cx", cx);
       ring.setAttribute("cy", cy);
       ring.setAttribute("r", ringRadius);
       ring.setAttribute("fill", "none");
-      ring.setAttribute("stroke", CLASS_COLOUR[r.class] || "#999");
-      ring.setAttribute("stroke-opacity", 0.35);
+      ring.setAttribute("stroke", meta.color);
+      ring.setAttribute("stroke-opacity", 0.32 * dim);
       svg.appendChild(ring);
+
       const dot = document.createElementNS(ns, "circle");
       dot.setAttribute("cx", cx);
       dot.setAttribute("cy", cy);
       dot.setAttribute("r", 6);
-      dot.setAttribute("fill", r.status === "byzantine" ? "#ff4c4c" : CLASS_COLOUR[r.class] || "#eee");
+      dot.setAttribute("fill", r.status === "byzantine" ? "#ff4c4c" : meta.color);
       dot.setAttribute("stroke", "#0b0d12");
       dot.setAttribute("stroke-width", 1);
+      dot.setAttribute("opacity", dim);
+      dot.style.cursor = "pointer";
+      dot.addEventListener("click", () => onRobotClick?.(r.robot_id));
+      dot.addEventListener("mouseenter", () => (dot.setAttribute("r", 8)));
+      dot.addEventListener("mouseleave", () => (dot.setAttribute("r", 6)));
       svg.appendChild(dot);
+
       const label = document.createElementNS(ns, "text");
-      label.setAttribute("x", cx + 8);
+      label.setAttribute("x", cx + 9);
       label.setAttribute("y", cy - 8);
       label.setAttribute("fill", "#e0e3eb");
       label.setAttribute("font-size", 10);
-      label.textContent = r.robot_id;
+      label.setAttribute("font-family", "ui-monospace, monospace");
+      label.setAttribute("opacity", dim);
+      label.textContent = prettyRobotId(r.robot_id);
       svg.appendChild(label);
+
+      const title = document.createElementNS(ns, "title");
+      title.textContent = `${prettyRobotId(r.robot_id)}\n${meta.label}\nstatus: ${r.status || "—"}\nbattery: ${Math.round((r.battery ?? 0) * 100)}%\n(click to inspect)`;
+      dot.appendChild(title);
     });
   }
 
@@ -111,14 +137,28 @@ export function initMesh(svg, env) {
         class: d.class,
         pose: d.pose,
         status: d.status,
+        battery: d.battery,
       });
       render();
     },
-    onPeerConnected: (_peer) => render(),
-    onPeerDisconnected: (_peer) => render(),
+    onPeerConnected: () => render(),
+    onPeerDisconnected: () => render(),
     onLinkOverride: (d) => {
       linkOverride = d.profile;
       render();
     },
+    setClassFilter: (set) => {
+      classFilter = set;
+      render();
+    },
+    setEnv: (e) => {
+      env = e;
+      render();
+    },
   };
 }
+
+// Back-compat export for any consumer relying on the old constant.
+export const CLASS_COLOUR = Object.fromEntries(
+  Object.entries(CLASSES).map(([k, v]) => [k, v.color]),
+);

@@ -8,49 +8,74 @@
 </head>
 <body>
   <div id="unleash">
-    <header id="unleash-header">
-      <h1>Unleash</h1>
-      <div id="summary">
-        <span><em>robots</em> <b id="s-robots">0</b></span>
-        <span><em>tasks</em> <b id="s-tasks">0</b></span>
-        <span><em>survivors</em> <b id="s-survivors">0</b></span>
-        <span><em>link</em> <b id="s-link">default</b></span>
+    <header id="mission-banner" class="mission-banner"></header>
+
+    <header id="app-header">
+      <div class="header-left">
+        <h1>Unleash</h1>
+        <span class="subtitle">Disaster-relief swarm · SwarmNL mesh</span>
+      </div>
+      <div class="header-right">
+        <button id="btn-help" title="Glossary of terms">?</button>
+        <button id="btn-onboard" title="Reopen onboarding">Intro</button>
       </div>
     </header>
+
     <nav id="tabs" role="tablist">
-      <button class="tab active" data-panel="mesh" role="tab">Mesh</button>
-      <button class="tab" data-panel="replication" role="tab">Replication</button>
+      <button class="tab active" data-panel="mission" role="tab">Mission</button>
+      <button class="tab" data-panel="mesh" role="tab">Mesh</button>
       <button class="tab" data-panel="task" role="tab">Tasks</button>
       <button class="tab" data-panel="consensus" role="tab">Consensus</button>
+      <button class="tab" data-panel="replication" role="tab">Replication</button>
       <button class="tab" data-panel="map" role="tab">Map</button>
     </nav>
-    <section id="panel-mesh" class="panel active">
+
+    <section id="panel-mission" class="panel active"></section>
+
+    <section id="panel-mesh" class="panel">
+      <p class="panel-caption">Live top-down map of the 40×25 m footprint. Dots are robots (coloured by class); lines are active gossip links; rings expand when latency climbs.</p>
       <svg id="mesh-svg" viewBox="0 0 800 500" preserveAspectRatio="xMidYMid meet"></svg>
-      <div class="mesh-legend">
-        <span><i class="ring green"></i>default</span>
-        <span><i class="ring amber"></i>degraded</span>
-        <span><i class="ring red"></i>blackout</span>
-      </div>
+      <div id="mesh-legend"></div>
     </section>
-    <section id="panel-replication" class="panel">
-      <h3>Survivor replication swimlanes</h3>
-      <div id="repl-swimlanes"></div>
-      <h3>Replication lag (p50/p95, ms)</h3>
-      <svg id="repl-chart" viewBox="0 0 800 200"></svg>
-    </section>
+
     <section id="panel-task" class="panel">
+      <p class="panel-caption">Live CBBA auction state. Each card is one announced task; the winner is the robot currently leading the bid. A task moves <span class="inline-badge assigned">assigned</span> once any bid is in, and updates every time a higher-scoring bid arrives.</p>
       <div id="task-cards"></div>
     </section>
+
     <section id="panel-consensus" class="panel">
-      <h3>W-MSR estimates (victim_count)</h3>
+      <p class="panel-caption">W-MSR estimate of total-survivors-detected per robot. Honest robots converge to a stable value; a Byzantine robot inflates its reading and diverges — its line turns red once the heuristic flags it.</p>
       <svg id="consensus-chart" viewBox="0 0 800 300"></svg>
       <div id="consensus-legend"></div>
     </section>
-    <section id="panel-map" class="panel">
-      <canvas id="map-canvas" width="800" height="500"></canvas>
+
+    <section id="panel-replication" class="panel">
+      <p class="panel-caption">How fast a survivor-detection event travels across the mesh. Each swimlane is one detected survivor plus the robots that have acknowledged it; the chart below shows p50/p95 replication lag.</p>
+      <h3>Survivor replication swimlanes</h3>
+      <div id="repl-swimlanes"></div>
+      <h3>Replication lag (ms)</h3>
+      <svg id="repl-chart" viewBox="0 0 800 200"></svg>
     </section>
-    <footer id="unleash-footer"><span id="phase">Phase: starting…</span></footer>
+
+    <section id="panel-map" class="panel">
+      <p class="panel-caption">Merged occupancy grid plus located survivors. Built only from what the observer hears on the mesh — no ground-truth leakage. Click any robot icon to inspect it.</p>
+      <canvas id="map-canvas" width="800" height="500"></canvas>
+      <div id="map-legend"></div>
+    </section>
+
+    <footer id="event-log">
+      <div id="event-log-header">
+        <span>Event log</span>
+        <span class="event-log-hint">plain-English narration · scroll for history</span>
+      </div>
+      <div id="event-log-body" class="log"></div>
+    </footer>
   </div>
+
+  <aside id="inspector" class="inspector"></aside>
+  <aside id="glossary" class="glossary"></aside>
+  <div id="onboarding"></div>
+
   <script type="module" src="/app/panels/bootstrap.js"></script>
 </body>
 </html>

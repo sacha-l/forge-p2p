@@ -62,7 +62,9 @@ enum Command {
         scenario: PathBuf,
         #[arg(long, default_value_t = 8088)]
         ui_port: u16,
-        #[arg(long, default_value_t = 53900)]
+        /// Well clear of the per-robot SwarmNL port range (53000 + node_index*100,
+        /// up to 54700 for the 18-robot roster).
+        #[arg(long, default_value_t = 54900)]
         tcp_port: u16,
         #[arg(long)]
         bootstrap: Option<String>,

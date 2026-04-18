@@ -206,6 +206,32 @@ impl Supervisor {
         Ok(())
     }
 
+    /// Announce a scenario-phase transition to the observer so the dashboard
+    /// can update its banner and timeline. Fire-and-forget — if the observer
+    /// isn't up yet we don't block the scenario runner.
+    pub async fn phase_announce(
+        &self,
+        phase: &str,
+        description: &str,
+        duration_s: u64,
+        index: u32,
+        total: u32,
+    ) {
+        let url = format!("http://127.0.0.1:{}/api/phase", self.args.ui_port);
+        let body = serde_json::json!({
+            "phase": phase,
+            "description": description,
+            "duration_s": duration_s,
+            "index": index,
+            "total": total,
+        });
+        let _ = tokio::time::timeout(
+            Duration::from_millis(500),
+            reqwest::Client::new().post(url).json(&body).send(),
+        )
+        .await;
+    }
+
     async fn sigkill(&mut self, node_index: u32) {
         if let Some(c) = self
             .children
