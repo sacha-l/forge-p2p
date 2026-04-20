@@ -1,11 +1,16 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, ValueEnum};
-use forge_ui::{DialRequest, ForgeUI, MeshEvent};
+use forge_ui::{DialRequest, ForgeUI, MeshEvent, UiHandle};
 use paired_exchange::config::Config;
-use swarm_nl::core::{AppData, Core, CoreBuilder, NetworkEvent};
+use paired_exchange::handshake::{
+    handler_ctx, initiate_handshake, install_handler_ctx, rpc_handler, HandlerCtx,
+};
+use paired_exchange::pairing::PairingBook;
+use swarm_nl::core::{AppData, Core, CoreBuilder, NetworkEvent, RpcConfig};
 use swarm_nl::setup::BootstrapConfig;
 use swarm_nl::PeerId;
 use tokio::sync::mpsc;
@@ -55,8 +60,6 @@ struct Cli {
 
     /// 32-byte shared secret, hex-encoded (64 hex chars).
     /// Falls back to the SECRET environment variable if the flag is absent.
-    /// Used by the pairing handshake from step 3 onwards; held in `Config`
-    /// today so the handshake can read it without further re-parsing.
     #[arg(long, env = "SECRET")]
     secret: String,
 }
@@ -72,23 +75,26 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let role = cli.role;
-    let _config =
+    let config =
         Config::from_hex(&cli.secret).context("failed to parse --secret / SECRET env var")?;
 
-    // Programmatic bootstrap config. Explicit 127.0.0.1 addresses for local
-    // dials (library-feedback: don't trust NewListenAddr's reported address).
+    let book = PairingBook::new();
+    let ctx = Arc::new(HandlerCtx::new(config.secret, book.clone()));
+    install_handler_ctx(ctx.clone()).map_err(|e| anyhow!("install handler ctx: {e}"))?;
+
     let bootnodes: HashMap<String, String> = HashMap::new();
-    let config = BootstrapConfig::new()
+    let swarm_config = BootstrapConfig::new()
         .with_tcp(role.tcp_port())
         .with_udp(role.udp_port())
         .with_bootnodes(bootnodes);
 
-    let mut node = CoreBuilder::with_config(config)
+    let mut node = CoreBuilder::with_config(swarm_config)
+        .with_rpc(RpcConfig::Default, rpc_handler)
         .build()
         .await
         .map_err(|e| anyhow!("failed to build swarm-nl core: {e:?}"))?;
 
-    // Drain the initial NewListenAddr burst so we can show PeerId + addrs.
+    // Drain the initial NewListenAddr burst.
     let mut peer_id: Option<String> = None;
     let mut listen_addrs: Vec<String> = Vec::new();
     for _ in 0..20 {
@@ -136,8 +142,27 @@ async fn main() -> Result<()> {
     })
     .await;
 
-    // Main event loop. Step 1 only prints ConnectionEstablished; later steps
-    // layer the handshake driver and data gate on top of the same select!.
+    // Background sweeper: every 1s, expire AwaitingResponse older than 5s.
+    let sweep_book = book.clone();
+    let sweep_ui = ui.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        interval.tick().await; // discard immediate first tick
+        loop {
+            interval.tick().await;
+            let swept = sweep_book.sweep_stale(paired_exchange::handshake::HANDSHAKE_TIMEOUT);
+            if swept > 0 {
+                tracing::warn!(count = swept, "sweeper moved stale handshakes to Failed");
+                sweep_ui
+                    .push(MeshEvent::Custom {
+                        label: "PAIR".to_string(),
+                        detail: format!("{swept} handshake(s) timed out"),
+                    })
+                    .await;
+            }
+        }
+    });
+
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
@@ -149,14 +174,20 @@ async fn main() -> Result<()> {
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 while let Some(event) = node.next_event().await {
-                    handle_event(event, &ui).await;
+                    handle_event(&mut node, event, &ui, &book, &config.secret).await;
                 }
             }
         }
     }
 }
 
-async fn handle_event(event: NetworkEvent, ui: &forge_ui::UiHandle) {
+async fn handle_event(
+    node: &mut Core,
+    event: NetworkEvent,
+    ui: &UiHandle,
+    book: &PairingBook,
+    secret: &[u8; paired_exchange::config::SECRET_LEN],
+) {
     match event {
         NetworkEvent::ConnectionEstablished {
             peer_id, endpoint, ..
@@ -167,6 +198,30 @@ async fn handle_event(event: NetworkEvent, ui: &forge_ui::UiHandle) {
             ui.push(MeshEvent::PeerConnected {
                 peer_id: peer_id.to_string(),
                 addr,
+            })
+            .await;
+
+            // Cache the peer for the sync RPC handler's gate check.
+            if let Some(ctx) = handler_ctx() {
+                ctx.set_peer(peer_id);
+            }
+
+            ui.push(MeshEvent::Custom {
+                label: "PAIR".to_string(),
+                detail: format!("challenging {peer_id}"),
+            })
+            .await;
+
+            initiate_handshake(node, book, secret, peer_id).await;
+
+            let label = if book.is_trusted(&peer_id) {
+                "trusted"
+            } else {
+                "failed"
+            };
+            ui.push(MeshEvent::Custom {
+                label: "PAIR".to_string(),
+                detail: format!("{peer_id} → {label}"),
             })
             .await;
         }

@@ -39,3 +39,16 @@ Reading the shared knowledge base up front so we don't rediscover these:
 - Build bootnode addresses as `/ip4/127.0.0.1/tcp/<port>` manually; don't trust `NewListenAddr`.
 - `BootstrapConfig::with_bootnodes` wants `HashMap<String, String>`, not `HashMap<PeerId, String>`.
 - The incoming-RPC event is `RpcIncomingMessageHandled { data }` and carries no sender `PeerId` — we'll have to encode the sender inside the wire payload, or rely on `ConnectionEstablished` to register the single expected peer. For a two-node demo we can cache "the one other peer" and treat every incoming RPC as coming from them; we'll note this explicitly in the step-5 implementation and in `library-feedback.md` if it becomes awkward.
+
+## Step 5 — protocol simplified from 4-message to 1-round-trip per direction
+
+- **Context**: The plan called for a 4-message handshake (`Challenge → ResponseAndChallenge → Response → Ack`) driven from the event loop on incoming RPC events.
+- **Discovery**: `NetworkEvent::RpcIncomingMessageHandled` is declared but *never emitted* by the library (grep'd `swarm-nl-0.2.1/src`). The only incoming-RPC hook is `CoreBuilder::with_rpc(config, handler: fn(RpcData) -> RpcData)` — a sync bare-fn pointer with no `PeerId` and no app-state capture.
+- **Decision**: Collapse to two independent 1-round-trip challenges. Each side, on `ConnectionEstablished`, generates a nonce, sends `AppData::SendRpc(Challenge(nonce))`, verifies the returned `Response(mac)`, and marks the peer `Trusted` locally on success. The peer's handler computes `HMAC(S, nonce)` and returns `Response(mac)` as the RPC response. Running both directions in parallel still yields mutual authentication.
+- **Trade-off**: Lose the combined `ResponseAndChallenge + Ack` round; two handshakes instead of one compressed one. Wire variants `ResponseAndChallenge` and `Ack` remain defined in `wire.rs` (forward-compat for a future SwarmNL that exposes peer identity on incoming RPC) but are not used by the current driver.
+- **Trade-off (gate 2 of 3)**: The handler-side `is_trusted` check on incoming `DataPing` falls back to a single-peer assumption (cached from `ConnectionEstablished` via a `static OnceLock<Arc<HandlerCtx>>`). This is clean for n=2 but does not generalise; logged in `library-feedback.md`.
+
+## Step 5 — `PairingBook` uses `std::sync::Mutex`, not `tokio::sync::Mutex`
+
+- **Context**: The RPC handler is a sync `fn(RpcData) -> RpcData` and cannot `.await`. It still needs to check `is_trusted`.
+- **Decision**: Back `PairingBook` with `std::sync::Mutex<HashMap<PeerId, PairState>>`. Critical sections are short (single-map-op) and never cross an await point, so this is the pattern tokio itself recommends for such cases. Lets the sync handler and all async tasks share one book without `try_lock`-style ugliness.
