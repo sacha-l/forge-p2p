@@ -1,0 +1,167 @@
+[app]
+name = "paired-exchange"
+description = "Two-node authorized data exchange gated by an out-of-band pre-shared-secret pairing handshake (HMAC-over-nonce challenge/response over SwarmNL RPC)."
+primary_pattern = "rpc"
+node_count = 2
+node_roles = "equal"
+complexity = "moderate"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+hmac = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[steps]]
+number = 1
+title = "Scaffold and basic node"
+description = """
+Create Cargo.toml (depends on swarm-nl, forge-ui path dep, tokio, anyhow, clap). \
+Create src/main.rs that parses --role {a,b} and --secret <hex> via clap, builds \
+a BootstrapConfig (programmatic, using 127.0.0.1 + per-role TCP/UDP ports per \
+the repo port scheme), constructs the Core via CoreBuilder, spawns forge-ui, \
+and runs an event loop that prints NewListenAddr and ConnectionEstablished \
+events. Also write a bootstrap_config.ini as reference (node A / node B peer \
+coordinates documented in README; bootnodes supplied to role B programmatically \
+via with_bootnodes so role B dials role A on startup)."""
+files = ["Cargo.toml", "src/main.rs", "bootstrap_config.ini"]
+apis = ["BootstrapConfig", "CoreBuilder", "NetworkEvent::NewListenAddr", "NetworkEvent::ConnectionEstablished"]
+test_criteria = "Two terminals: `cargo run -- --role a` and `cargo run -- --role b` both start, print PeerId + listen addr, and each logs a ConnectionEstablished for the other within ~3s. forge-ui shows both peers."
+test_command = "cargo run -- --role a"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 2
+title = "Shared-secret loading"
+description = """
+Add --secret <hex> CLI flag (env fallback: SECRET). Parse to [u8; 32]. Reject \
+invalid hex, wrong length, or missing value with a clean anyhow error. Wire \
+the secret into a Config struct passed to the event loop (not yet used by any \
+handshake logic)."""
+files = ["src/main.rs", "src/config.rs"]
+apis = []
+test_criteria = "Unit tests: valid 64-char hex parses to expected bytes; odd length / non-hex / wrong length all return Err without panicking. Missing --secret with no env var returns Err."
+test_command = "cargo test --lib"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 3
+title = "Wire envelope (encode/decode)"
+description = """
+Add src/wire.rs defining enum WireMsg { Challenge([u8;16]), Response([u8;32]), \
+ResponseAndChallenge { mac: [u8;32], nonce: [u8;16] }, Ack, DataPing(u64), \
+DataPong(u64) }. Implement encode(&self) -> Vec<u8> and decode(&[u8]) -> \
+Result<WireMsg>. Tag bytes per spec (0x01..0x04, 0x10, 0x11). Never panic on \
+malformed input. Add a helper hmac_nonce(secret, nonce) using hmac::Hmac<Sha256>."""
+files = ["src/wire.rs", "src/main.rs"]
+apis = []
+test_criteria = "Unit tests: roundtrip every variant; truncated / extra-byte / unknown-tag inputs all return Err; HMAC helper produces deterministic 32-byte output and verifies with a known test vector."
+test_command = "cargo test --lib wire"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 4
+title = "Per-peer pairing state"
+description = """
+Add src/pairing.rs defining enum PairState { Unknown, AwaitingResponse { \
+nonce_sent: [u8;16], started_at: Instant }, Trusted { since: Instant }, \
+Failed { reason: &'static str } } and struct PairingBook wrapping \
+Arc<tokio::sync::Mutex<HashMap<PeerId, PairState>>>. Methods: is_trusted, \
+mark_challenged, mark_trusted, mark_failed, sweep_stale(timeout: Duration). \
+Stale sweep moves AwaitingResponse older than timeout into Failed."""
+files = ["src/pairing.rs", "src/main.rs"]
+apis = []
+test_criteria = "Unit tests: every transition (Unknown→AwaitingResponse→Trusted, any→Failed); sweep_stale with 5s timeout moves old AwaitingResponse to Failed but leaves fresh ones alone; is_trusted returns true only for Trusted variant."
+test_command = "cargo test --lib pairing"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 5
+title = "Handshake driver"
+description = """
+In the event loop: on ConnectionEstablished, generate a 16-byte nonce, \
+mark_challenged, send AppData::SendRpc with encode(Challenge(nonce)). On \
+incoming RPC: decode the inner tag and branch — Challenge(n) → reply \
+ResponseAndChallenge(hmac(secret,n), n') and record our own AwaitingResponse; \
+ResponseAndChallenge(mac,n) → verify mac against our stored nonce, on success \
+reply Response(hmac(secret,n)) then Ack and mark_trusted, on failure \
+mark_failed; Response(mac) → verify against our stored nonce, on success \
+mark_trusted + Ack, on failure mark_failed; Ack → no-op. Spawn a background \
+task calling sweep_stale(Duration::from_secs(5)) every 1s."""
+files = ["src/main.rs", "src/handshake.rs"]
+apis = ["AppData::SendRpc", "NetworkEvent::RpcIncomingMessageHandled", "NetworkEvent::ConnectionEstablished"]
+test_criteria = "Two-node integration test (matching secret) reaches Trusted on both sides within 2s of ConnectionEstablished. Mismatched secrets end in Failed on both sides. One side stubbed to drop challenges transitions the other into Failed after the 5s timeout."
+test_command = "cargo test --test handshake"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 6
+title = "Data gate (ping-pong)"
+description = """
+Add src/datagate.rs. Spawn one per-peer task that, while the peer is Trusted, \
+sends DataPing(seq) every 2s via AppData::SendRpc; seq is a monotonic u64 \
+counter per peer. On incoming DataPing(seq), reply DataPong(seq) — but ONLY \
+if is_trusted; otherwise drop + debug-log. On incoming DataPong(seq), record \
+RTT against the send time we stored — but ONLY if is_trusted. All three gates \
+check the same PairingBook."""
+files = ["src/datagate.rs", "src/main.rs"]
+apis = ["AppData::SendRpc", "NetworkEvent::RpcIncomingMessageHandled"]
+test_criteria = "Two-node integration test: matching secret → ≥3 round-trip DataPing/DataPong pairs observed and RTTs logged within a 10s window. Mismatched secrets → zero DataPing and zero DataPong observed on either side across a 10s run, though ConnectionEstablished still fires."
+test_command = "cargo test --test datagate"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 7
+title = "forge-ui integration"
+description = """
+Push MeshEvents on every pairing transition (PairingStarted, PairingSucceeded, \
+PairingFailed) and every DataPing sent / DataPong received. Serve an \
+app-specific static/index.html that renders: current pairing state per peer \
+(Pending / Trusted / Failed with color), a live RTT chart or rolling average, \
+and the last 20 data events. Register any app-specific routes via \
+ForgeUI::with_routes if needed (read-only /api/state is sufficient)."""
+files = ["static/index.html", "static/app.js", "static/app.css", "src/main.rs", "src/ui.rs"]
+apis = ["forge_ui::ForgeUI", "forge_ui::MeshEvent", "forge_ui::DialRequest"]
+test_criteria = "Manual check: start both nodes, open forge-ui in the browser — edge between peers goes Pending (grey) → Trusted (green) within ~2s, then Data events scroll in the log with RTTs. Screenshot saved to apps/paired-exchange/docs/."
+test_command = "cargo run -- --role a"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 8
+title = "Persistence (stretch)"
+description = """
+On transition to Trusted, append PeerId (multibase string) to \
+apps/paired-exchange/<role>_trusted_peers.json (role-scoped so both roles \
+running in the same repo don't clobber each other). On startup, load the \
+file into PairingBook as Trusted. On ConnectionEstablished for a persisted \
+peer, skip the handshake (do NOT send Challenge). Add a process-wide \
+AtomicU64 counter of Challenge sends; the persistence test reads it via a \
+debug endpoint or by asserting on a log counter."""
+files = ["src/persistence.rs", "src/main.rs"]
+apis = []
+test_criteria = "Two-node integration test: first run → both reach Trusted and write the JSON file; restart both → both reach Trusted without any Challenge being sent (counter stays at 0). Corrupt JSON is ignored and reverts to full handshake."
+test_command = "cargo test --test persistence"
+validation = ["cargo check", "cargo clippy", "cargo test"]
+
+[[steps]]
+number = 9
+title = "Docs and final integration"
+description = """
+Write apps/paired-exchange/README.md: how to run (two-terminal recipe with \
+example --secret), the wire-protocol table from step 3, the state diagram \
+from step 4, the three-if gate explanation from §5 of the plan, the security \
+caveats from §6 of the plan, and a screenshot of the mesh visualizer showing \
+a successful pairing. Run the full validation suite and update registry.toml \
+to status = \"complete\"."""
+files = ["README.md", "../../.forge/registry.toml", "tests/integration.rs"]
+apis = []
+test_criteria = "Final integration test exercises matched-secret success, mismatched-secret failure, and (if step 8 done) persistence skip-path in a single test binary. README renders on GitHub; all internal links resolve."
+test_command = "cargo test"
+validation = ["cargo check", "cargo clippy", "cargo test"]

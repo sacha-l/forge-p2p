@@ -1,0 +1,26 @@
+[app]
+name = "paired-exchange"
+branch = "dev/paired-exchange"
+created = "2026-04-20T00:00:00Z"
+
+[progress]
+total_steps = 9
+current_step = 1
+status = "not-started"
+last_completed_step = 0
+last_updated = "2026-04-20T00:00:00Z"
+
+[current_step]
+title = "Scaffold and basic node"
+attempt = 1
+files_modified = []
+
+[blocker]
+step = 0
+description = ""
+is_library_issue = false
+
+[validation]
+last_cargo_check = "not-run"
+last_cargo_clippy = "not-run"
+last_cargo_test = "not-run"
