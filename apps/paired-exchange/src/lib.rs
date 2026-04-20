@@ -3,6 +3,7 @@
 //! binary stays thin: CLI parsing + event-loop wiring.
 
 pub mod config;
+pub mod datagate;
 pub mod handshake;
 pub mod pairing;
 pub mod wire;

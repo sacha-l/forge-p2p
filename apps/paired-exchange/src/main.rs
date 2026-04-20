@@ -6,6 +6,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, ValueEnum};
 use forge_ui::{DialRequest, ForgeUI, MeshEvent, UiHandle};
 use paired_exchange::config::Config;
+use paired_exchange::datagate::{new_rtt_log, spawn_ping_task, RttLog};
 use paired_exchange::handshake::{
     handler_ctx, initiate_handshake, install_handler_ctx, rpc_handler, HandlerCtx,
 };
@@ -81,6 +82,7 @@ async fn main() -> Result<()> {
     let book = PairingBook::new();
     let ctx = Arc::new(HandlerCtx::new(config.secret, book.clone()));
     install_handler_ctx(ctx.clone()).map_err(|e| anyhow!("install handler ctx: {e}"))?;
+    let rtt_log: RttLog = new_rtt_log();
 
     let bootnodes: HashMap<String, String> = HashMap::new();
     let swarm_config = BootstrapConfig::new()
@@ -174,7 +176,7 @@ async fn main() -> Result<()> {
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 while let Some(event) = node.next_event().await {
-                    handle_event(&mut node, event, &ui, &book, &config.secret).await;
+                    handle_event(&mut node, event, &ui, &book, &config.secret, &rtt_log).await;
                 }
             }
         }
@@ -187,6 +189,7 @@ async fn handle_event(
     ui: &UiHandle,
     book: &PairingBook,
     secret: &[u8; paired_exchange::config::SECRET_LEN],
+    rtt_log: &RttLog,
 ) {
     match event {
         NetworkEvent::ConnectionEstablished {
@@ -214,16 +217,29 @@ async fn handle_event(
 
             initiate_handshake(node, book, secret, peer_id).await;
 
-            let label = if book.is_trusted(&peer_id) {
-                "trusted"
-            } else {
-                "failed"
-            };
+            let trusted = book.is_trusted(&peer_id);
             ui.push(MeshEvent::Custom {
                 label: "PAIR".to_string(),
-                detail: format!("{peer_id} → {label}"),
+                detail: format!(
+                    "{peer_id} → {}",
+                    if trusted { "trusted" } else { "failed" }
+                ),
             })
             .await;
+
+            // Gate-open side effect: spawn the per-peer ping task only
+            // after the handshake lands on Trusted. Sending `DataPing`
+            // is gated a second time inside the task (gate #1 in the
+            // three-if gate) so it stops the moment trust is revoked.
+            if trusted {
+                spawn_ping_task(
+                    node.clone(),
+                    book.clone(),
+                    peer_id,
+                    ui.clone(),
+                    rtt_log.clone(),
+                );
+            }
         }
         NetworkEvent::ConnectionClosed { peer_id, .. } => {
             tracing::info!(peer = %peer_id, "ConnectionClosed");

@@ -106,6 +106,15 @@ artifacts stay in your fork.
 - **Workaround**: Include sender `PeerId` in the RPC request bytes.
 - **Severity**: nice-to-have
 
+## [2026-04-20] paired-exchange — `Core::recv_from_network` polls with 3-second granularity, so every RPC has a hard 3s floor
+
+- **Context**: Per-peer ping task sends `AppData::SendRpc(DataPing)` every 2 seconds and measures round-trip time.
+- **Problem**: `Core::recv_from_network` (called by `query_network`) does not suspend on an actual notification from the networking backend. Instead it spin-polls `stream_response_buffer` in a loop gated by `tokio::time::sleep(Duration::from_secs(TASK_SLEEP_DURATION))` where `TASK_SLEEP_DURATION = 3` is a private const in `core/prelude.rs:23`. Its max iteration count is 10, which turns into a 30-second ceiling. Effect: every single RPC has a built-in floor of `0..3s` minimum latency even for in-process nodes on loopback where the real round-trip is well under a millisecond. Observed pings oscillate between ~10ms and ~3s depending on where the response arrives relative to the poll cycle; latency is not monotone with network distance.
+- **Suggestion**: Wake the waiter with a notification when the response lands (e.g. `tokio::sync::Notify`, or park a oneshot receiver per `stream_id` and drop it into the buffer alongside the payload). Failing that, at minimum make `TASK_SLEEP_DURATION` configurable through `RpcConfig`.
+- **Workaround**: None available from the app side — the 3s sleep is hardcoded and private. Apps that want real-time RPC must either tolerate the floor or fork the library. For this demo, ping timeouts were raised to 10s and integration-test RTT assertions were loosened so the test tolerates the polling-cycle jitter.
+- **Severity**: important
+- **Relevant API**: `Core::query_network`, `Core::recv_from_network`, `TASK_SLEEP_DURATION`
+
 ## [2026-04-20] paired-exchange — `RpcIncomingMessageHandled` is declared but never emitted; RPC handler is a sync `fn(RpcData) -> RpcData` with no peer context
 
 - **Context**: Building an application-level authorization gate (HMAC-based pairing) where both sides refuse to act on incoming RPCs until a challenge/response handshake completes. The spec called for a 4-message handshake (`Challenge → ResponseAndChallenge → Response → Ack`) driven from the event loop on incoming RPC events, with each side reacting to the sender's `PeerId`.
