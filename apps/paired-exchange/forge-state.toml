@@ -5,13 +5,13 @@ created = "2026-04-20T00:00:00Z"
 
 [progress]
 total_steps = 9
-current_step = 1
-status = "not-started"
-last_completed_step = 0
-last_updated = "2026-04-20T00:00:00Z"
+current_step = 2
+status = "in-progress"
+last_completed_step = 1
+last_updated = "2026-04-20T07:40:00Z"
 
 [current_step]
-title = "Scaffold and basic node"
+title = "Shared-secret loading"
 attempt = 1
 files_modified = []
 
@@ -21,6 +21,6 @@ description = ""
 is_library_issue = false
 
 [validation]
-last_cargo_check = "not-run"
-last_cargo_clippy = "not-run"
-last_cargo_test = "not-run"
+last_cargo_check = "pass"
+last_cargo_clippy = "pass"
+last_cargo_test = "pass"

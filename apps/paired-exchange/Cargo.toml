@@ -1,0 +1,21 @@
+[package]
+name = "paired-exchange"
+version = "0.1.0"
+edition = "2021"
+description = "Two-node authorized data exchange gated by an out-of-band pre-shared-secret pairing handshake"
+
+[dependencies]
+swarm-nl = { version = "0.2.1", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hmac = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+hex = "0.4"
+axum = "0.7"
+forge-ui = { path = "../../shared/forge-ui" }
