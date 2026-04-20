@@ -3,6 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use axum::extract::State;
+use axum::routing::get;
+use axum::{Json, Router};
 use clap::{Parser, ValueEnum};
 use forge_ui::{DialRequest, ForgeUI, MeshEvent, UiHandle};
 use paired_exchange::config::Config;
@@ -10,11 +13,89 @@ use paired_exchange::datagate::{new_rtt_log, spawn_ping_task, RttLog};
 use paired_exchange::handshake::{
     handler_ctx, initiate_handshake, install_handler_ctx, rpc_handler, HandlerCtx,
 };
-use paired_exchange::pairing::PairingBook;
+use paired_exchange::pairing::{PairState, PairingBook};
+use serde::Serialize;
 use swarm_nl::core::{AppData, Core, CoreBuilder, NetworkEvent, RpcConfig};
 use swarm_nl::setup::BootstrapConfig;
 use swarm_nl::PeerId;
 use tokio::sync::mpsc;
+
+#[derive(Serialize)]
+struct PeerView {
+    peer_id: String,
+    state: &'static str,
+    since_ms: Option<u128>,
+    reason: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RttView {
+    peer_id: String,
+    seq: u64,
+    rtt_ms: u128,
+}
+
+#[derive(Serialize)]
+struct StateView {
+    role: &'static str,
+    peers: Vec<PeerView>,
+    rtts: Vec<RttView>,
+}
+
+struct AppState {
+    role_label: &'static str,
+    book: PairingBook,
+    rtt_log: RttLog,
+}
+
+async fn state_handler(State(state): State<std::sync::Arc<AppState>>) -> Json<StateView> {
+    let peers = state
+        .book
+        .snapshot()
+        .into_iter()
+        .map(|(peer_id, st)| {
+            let (label, since_ms, reason) = match st {
+                PairState::Unknown => ("unknown", None, None),
+                PairState::AwaitingResponse { started_at, .. } => {
+                    ("awaiting", Some(started_at.elapsed().as_millis()), None)
+                }
+                PairState::Trusted { since } => {
+                    ("trusted", Some(since.elapsed().as_millis()), None)
+                }
+                PairState::Failed { reason } => ("failed", None, Some(reason.to_string())),
+            };
+            PeerView {
+                peer_id: peer_id.to_string(),
+                state: label,
+                since_ms,
+                reason,
+            }
+        })
+        .collect();
+
+    let rtts = {
+        let log = state
+            .rtt_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        log.iter()
+            .rev()
+            .take(20)
+            .rev()
+            .map(|(peer_id, seq, rtt)| RttView {
+                peer_id: peer_id.to_string(),
+                seq: *seq,
+                rtt_ms: rtt.as_millis(),
+            })
+            .collect()
+    };
+
+    Json(StateView {
+        role: state.role_label,
+        peers,
+        rtts,
+    })
+}
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Role {
@@ -128,12 +209,22 @@ async fn main() -> Result<()> {
 
     let (dial_tx, mut dial_rx) = mpsc::channel::<DialRequest>(64);
 
+    let app_state = std::sync::Arc::new(AppState {
+        role_label: role.label(),
+        book: book.clone(),
+        rtt_log: rtt_log.clone(),
+    });
+    let routes = Router::new()
+        .route("/api/paired/state", get(state_handler))
+        .with_state(app_state);
+
     let static_dir = format!("{}/static", env!("CARGO_MANIFEST_DIR"));
     let ui = ForgeUI::new()
         .with_port(role.ui_port())
         .with_app_name(&format!("paired-exchange :: role {}", role.label()))
         .with_app_static_dir(&static_dir)
         .with_local_peer_id(&peer_id)
+        .with_routes(routes)
         .with_dial_sender(dial_tx)
         .start()
         .await?;

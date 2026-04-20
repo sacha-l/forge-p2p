@@ -1,0 +1,101 @@
+:root {
+  --fg: #222;
+  --muted: #6a6a6a;
+  --line: #d6d6d6;
+  --bg: #ffffff;
+  --accent: #1b5e20;
+  --warn: #b23b00;
+  --wait: #6a6a6a;
+  --trust: #1b5e20;
+  --fail: #b23b00;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font: 13px/1.5 var(--font);
+  color: var(--fg);
+  background: var(--bg);
+}
+
+header {
+  padding: 14px 18px 8px;
+  border-bottom: 1px solid var(--line);
+}
+header h1 {
+  font-size: 15px;
+  margin: 0;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #444;
+}
+#subtitle { margin: 4px 0 0; color: var(--muted); }
+
+section {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+section h2 {
+  font-size: 11px;
+  margin: 0 0 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.peer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  margin-bottom: 6px;
+  background: #fafafa;
+}
+.peer .id { font-family: var(--mono); font-size: 11px; flex: 1; }
+.peer .badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge.trusted { background: #e3f1e3; color: var(--trust); }
+.badge.awaiting { background: #fdf0d5; color: #8a5a00; }
+.badge.failed { background: #fbe5dc; color: var(--fail); }
+.badge.unknown { background: #eee; color: var(--wait); }
+.peer .meta { color: var(--muted); font-size: 11px; }
+
+.empty { color: var(--muted); font-style: italic; padding: 6px 0; }
+.muted { color: var(--muted); }
+code { font-family: var(--mono); font-size: 12px; }
+
+#rtt-chart {
+  width: 100%;
+  height: 120px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fafafa;
+  display: block;
+  margin: 8px 0;
+}
+#rtt-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow: auto;
+}
+#rtt-log li {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 0;
+  border-bottom: 1px dotted var(--line);
+  color: #333;
+}
+
+footer { padding: 10px 18px; background: #f6f6f6; font-size: 11px; }
