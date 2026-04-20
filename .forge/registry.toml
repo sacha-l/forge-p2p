@@ -35,9 +35,9 @@ created = "2026-04-12"
 [[apps]]
 name = "paired-exchange"
 description = "Two-node authorized data exchange gated by an out-of-band pre-shared-secret pairing handshake over RPC"
-status = "planned"
+status = "complete"
 branch = "dev/paired-exchange"
 pattern = "rpc"
 steps_total = 9
-steps_done = 0
+steps_done = 9
 created = "2026-04-20"
