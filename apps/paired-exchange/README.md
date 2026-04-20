@@ -39,6 +39,74 @@ round-trips.
 Mismatched secrets → `trusted` never lights up; zero pings are ever
 sent because the gate refuses to open.
 
+## How the proof of knowledge works
+
+Each side proves it knows the shared 32-byte secret by returning
+`HMAC-SHA256(secret, fresh_nonce)` for a nonce the *other* side just
+picked. The secret itself never crosses the wire.
+
+**The knowledge.** Both nodes hold an identical 32-byte secret supplied
+out of band via `SECRET=<64 hex chars>`. It is parsed in
+[`src/config.rs`](src/config.rs) (`parse_secret`) and held in memory
+for the lifetime of the process. The scheme only holds up if the
+secret is high-entropy — see the Security caveats below for why a
+6-digit PIN is not safe here.
+
+**The primitive.** The only cryptographic operation is
+
+```
+mac = HMAC-SHA256(secret, nonce)      // 16 bytes in → 32 bytes out
+```
+
+computed by `hmac_nonce` and verified with the constant-time `mac_eq`
+(both in [`src/wire.rs`](src/wire.rs)). HMAC-SHA256 is a one-way
+PRF: given the `(nonce, mac)` pair, recovering `secret` requires
+brute-forcing the 256-bit keyspace. That is the entire cryptographic
+argument.
+
+**Why the nonce is fresh random.** `fresh_nonce`
+([`src/handshake.rs`](src/handshake.rs)) fills 16 bytes from
+`rand::thread_rng()` per handshake. A static challenge would let an
+attacker replay a previously captured `Response`; a fresh nonce every
+time forces the peer to compute a fresh MAC, which only the holder of
+`secret` can produce.
+
+**Mutual and parallel.** On `ConnectionEstablished`, both nodes run
+`initiate_handshake` concurrently. Two independent challenge/response
+round-trips execute in parallel, one in each direction:
+
+```
+           A                                    B
+           │──── Challenge(nonce_a) ──────────▶ │
+           │◀─── Response(HMAC(s, nonce_a)) ─── │
+           │ verifies MAC → mark B Trusted      │
+           │                                    │
+           │◀──── Challenge(nonce_b) ────────── │
+           │ ──── Response(HMAC(s, nonce_b)) ─▶ │
+           │                                    │ verifies MAC → mark A Trusted
+```
+
+Each side must independently verify the other's MAC before it will
+release any application data. Either direction failing is sufficient
+to keep the gate shut on that side.
+
+**Eavesdropper analysis.** A passive attacker who captures one or more
+`(nonce, mac)` pairs learns nothing about `secret` beyond what HMAC's
+one-wayness leaks — which, for a 256-bit random secret, is negligible.
+The attack surface collapses only when the secret has low entropy, in
+which case an offline dictionary attack becomes feasible; that is why
+the Security caveats below recommend a PAKE (SPAKE2) for PIN-class
+secrets.
+
+**Mismatched secrets in operation.** Start the two roles with
+different `SECRET` values and you will see `Challenge`s fly and
+`Response`s come back, but each side computes `hmac_nonce(local_secret,
+remote_nonce)` which will not equal the received MAC. `mac_eq` returns
+false, the peer moves to `Failed { reason: "mac mismatch" }`, and the
+three gates documented below stay shut forever. No `ping ok` line is
+ever logged. That is the demo's security claim expressed as observable
+behaviour.
+
 ## Wire protocol
 
 Every RPC payload starts with a 1-byte tag. Bodies are fixed-length per
