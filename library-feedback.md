@@ -17,6 +17,7 @@ artifacts stay in your fork.
 - **Suggestion**: Make `prelude` public, OR fix the reference doc examples to use the working import paths.
 - **Workaround**: `use swarm_nl::*;` (crate root re-exports everything needed) or import individually: `use swarm_nl::core::{CoreBuilder, NetworkEvent, AppData, AppResponse}; use swarm_nl::setup::BootstrapConfig;`.
 - **Severity**: important
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/46
 
 ## [2026-04-12] echo-gossip — AppData/NetworkEvent variant names differ from documentation
 
@@ -31,6 +32,7 @@ artifacts stay in your fork.
 - **Suggestion**: Align docs with source, or rename variants to the shorter documented names.
 - **Workaround**: Check `~/.cargo/registry/.../swarm-nl-*/src/core/prelude.rs` for the real definitions.
 - **Severity**: important
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/47
 
 ## [2026-04-12] echo-gossip — `Core::next_event()` requires `&mut self`
 
@@ -39,6 +41,7 @@ artifacts stay in your fork.
 - **Suggestion**: Update reference examples to use `let mut node = ...`.
 - **Workaround**: Declare `let mut node`.
 - **Severity**: nice-to-have
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/48
 
 ## [2026-04-12] echo-gossip — `next_event()` is non-blocking and undocumented
 
@@ -47,6 +50,7 @@ artifacts stay in your fork.
 - **Suggestion**: Document the non-blocking behaviour. Or offer a `next_event_blocking`/`wait_event` variant that actually suspends.
 - **Workaround**: `tokio::time::sleep(Duration::from_millis(100))` at the end of every iteration.
 - **Severity**: important
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/49
 
 ## [2026-04-12] echo-gossip — Gossipsub mesh takes ~5 s to form; broadcasts before then silently fail
 
@@ -55,6 +59,7 @@ artifacts stay in your fork.
 - **Suggestion**: Buffer broadcasts until the mesh is ready, or expose a distinct "mesh-not-ready" error variant so apps can retry automatically.
 - **Workaround**: `tokio::time::sleep(Duration::from_secs(5))` after joins before the first broadcast in tests.
 - **Severity**: important
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/50
 
 ## [2026-04-12] echo-gossip — Use `/ip4/127.0.0.1/…` for local bootnodes; `NewListenAddr` isn't reliable
 
@@ -63,6 +68,7 @@ artifacts stay in your fork.
 - **Suggestion**: Document that local tests should construct bootnode addresses manually, or expose a filter helper on `Core` that returns only loopback addresses.
 - **Workaround**: Build the addr string manually: `format!("/ip4/127.0.0.1/tcp/{port}")`.
 - **Severity**: nice-to-have
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/51
 
 ## [2026-04-12] sovereign-notes — `Core::replicate()` errors when no peers are in the mesh
 
@@ -71,6 +77,7 @@ artifacts stay in your fork.
 - **Suggestion**: Either succeed silently when there are no peers (data is buffered locally anyway) or expose a dedicated `NoPeers` error variant distinct from broadcast failures.
 - **Workaround**: `match node.replicate(...).await { Ok(()) => {}, Err(_) => println!("no peers; will sync later"), }`.
 - **Severity**: important
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/52
 
 ## [2026-04-12] sovereign-notes — `CoreBuilder::with_rpc` handler cannot capture app state
 
@@ -79,6 +86,7 @@ artifacts stay in your fork.
 - **Suggestion**: Accept `Arc<dyn Fn(RpcData) -> RpcData + Send + Sync>`, or add a second argument passing an app-provided context handle, so handlers can be closures over per-node state.
 - **Workaround**: Use a module-level `OnceLock<PathBuf>` (or similar global) set before `CoreBuilder::...build()` runs. Means you can't run two nodes with different data dirs in one process.
 - **Severity**: nice-to-have
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/53
 
 ## [2026-04-13] mesh-chat — gossipsub mesh is one-way when topic is joined before the first peer connects
 
@@ -88,6 +96,7 @@ artifacts stay in your fork.
 - **Workaround**: None satisfying. A periodic re-join each heartbeat works but is wasteful. Intermittent delivery means demos should visibly show one direction (e.g. Al → Bobby) and mention the limitation.
 - **Severity**: important
 - **Relevant API**: `AppData::GossipsubJoinNetwork`, `NetworkEvent::GossipsubSubscribeMessageReceived`, `NetworkEvent::GossipsubIncomingMessageHandled`
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/55
 
 ## [2026-04-13] mesh-chat — `BootstrapConfig::with_bootnodes` takes `HashMap<String, String>`, not `HashMap<PeerId, String>`
 
@@ -97,6 +106,7 @@ artifacts stay in your fork.
 - **Workaround**: `let mut bootnodes: HashMap<String, String> = HashMap::new(); bootnodes.insert(peer_id_string, multiaddr_string);`.
 - **Severity**: important
 - **Relevant API**: `BootstrapConfig::with_bootnodes`, `setup::Nodes`
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/56
 
 ## [2026-04-12] sovereign-notes — `RpcIncomingMessageHandled` omits the requesting peer
 
@@ -105,6 +115,7 @@ artifacts stay in your fork.
 - **Suggestion**: Add `peer: PeerId` to the event, matching other incoming-message events that already carry `source` or `peer_id`.
 - **Workaround**: Include sender `PeerId` in the RPC request bytes.
 - **Severity**: nice-to-have
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/54
 
 ## [2026-04-20] paired-exchange — `Core::recv_from_network` polls with 3-second granularity, so every RPC has a hard 3s floor
 
@@ -114,6 +125,7 @@ artifacts stay in your fork.
 - **Workaround**: None available from the app side — the 3s sleep is hardcoded and private. Apps that want real-time RPC must either tolerate the floor or fork the library. For this demo, ping timeouts were raised to 10s and integration-test RTT assertions were loosened so the test tolerates the polling-cycle jitter.
 - **Severity**: important
 - **Relevant API**: `Core::query_network`, `Core::recv_from_network`, `TASK_SLEEP_DURATION`
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/57
 
 ## [2026-04-20] paired-exchange — `RpcIncomingMessageHandled` is declared but never emitted; RPC handler is a sync `fn(RpcData) -> RpcData` with no peer context
 
@@ -127,3 +139,4 @@ artifacts stay in your fork.
 - **Workaround**: `static HANDLER_CTX: OnceLock<Arc<HandlerCtx>>` holding the shared secret, a `std::sync::Mutex`-backed `PairingBook` (not `tokio::sync::Mutex`, so the sync handler can lock it without blocking the runtime), and an `Option<PeerId>` cache of the one currently-connected peer, set from `ConnectionEstablished`. Document clearly that the handler-side gate only works because n=2.
 - **Severity**: blocking (for the 4-message protocol) → important (after the protocol simplification)
 - **Relevant API**: `NetworkEvent::RpcIncomingMessageHandled`, `CoreBuilder::with_rpc`, `RpcConfig`, `AppData::SendRpc`
+- **Upstream issue**: https://github.com/algorealmInc/SwarmNL/issues/58
