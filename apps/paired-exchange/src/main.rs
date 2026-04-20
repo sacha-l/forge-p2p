@@ -14,6 +14,7 @@ use paired_exchange::handshake::{
     handler_ctx, initiate_handshake, install_handler_ctx, rpc_handler, HandlerCtx,
 };
 use paired_exchange::pairing::{PairState, PairingBook};
+use paired_exchange::persistence;
 use serde::Serialize;
 use swarm_nl::core::{AppData, Core, CoreBuilder, NetworkEvent, RpcConfig};
 use swarm_nl::setup::BootstrapConfig;
@@ -165,6 +166,14 @@ async fn main() -> Result<()> {
     install_handler_ctx(ctx.clone()).map_err(|e| anyhow!("install handler ctx: {e}"))?;
     let rtt_log: RttLog = new_rtt_log();
 
+    // Load persisted trusted peers (if any). The file is role-scoped so
+    // running A and B from the same working directory doesn't clash.
+    let persist_path = persistence::default_path(role.label());
+    for persisted in persistence::load_trusted_peers(&persist_path) {
+        tracing::info!(peer = %persisted, path = %persist_path.display(), "restoring trusted peer from disk");
+        book.mark_trusted(persisted);
+    }
+
     let bootnodes: HashMap<String, String> = HashMap::new();
     let swarm_config = BootstrapConfig::new()
         .with_tcp(role.tcp_port())
@@ -267,7 +276,16 @@ async fn main() -> Result<()> {
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 while let Some(event) = node.next_event().await {
-                    handle_event(&mut node, event, &ui, &book, &config.secret, &rtt_log).await;
+                    handle_event(
+                        &mut node,
+                        event,
+                        &ui,
+                        &book,
+                        &config.secret,
+                        &rtt_log,
+                        &persist_path,
+                    )
+                    .await;
                 }
             }
         }
@@ -281,6 +299,7 @@ async fn handle_event(
     book: &PairingBook,
     secret: &[u8; paired_exchange::config::SECRET_LEN],
     rtt_log: &RttLog,
+    persist_path: &std::path::Path,
 ) {
     match event {
         NetworkEvent::ConnectionEstablished {
@@ -306,17 +325,37 @@ async fn handle_event(
             })
             .await;
 
-            initiate_handshake(node, book, secret, peer_id).await;
+            // Persistence fast-path: if the peer is already `Trusted`
+            // from a previous run's on-disk cache, skip the handshake
+            // entirely. This is the step-8 exit condition and keeps
+            // `CHALLENGE_SENT` at zero on reconnect.
+            let already_trusted = book.is_trusted(&peer_id);
+            if !already_trusted {
+                initiate_handshake(node, book, secret, peer_id).await;
+            } else {
+                tracing::info!(peer = %peer_id, "handshake: skipped — peer already trusted from persistence");
+                ui.push(MeshEvent::Custom {
+                    label: "PAIR".to_string(),
+                    detail: format!("{peer_id} → trusted (from cache)"),
+                })
+                .await;
+            }
 
             let trusted = book.is_trusted(&peer_id);
-            ui.push(MeshEvent::Custom {
-                label: "PAIR".to_string(),
-                detail: format!(
-                    "{peer_id} → {}",
-                    if trusted { "trusted" } else { "failed" }
-                ),
-            })
-            .await;
+            if trusted && !already_trusted {
+                ui.push(MeshEvent::Custom {
+                    label: "PAIR".to_string(),
+                    detail: format!("{peer_id} → trusted"),
+                })
+                .await;
+                persistence::save_trusted_peer(persist_path, &peer_id);
+            } else if !trusted {
+                ui.push(MeshEvent::Custom {
+                    label: "PAIR".to_string(),
+                    detail: format!("{peer_id} → failed"),
+                })
+                .await;
+            }
 
             // Gate-open side effect: spawn the per-peer ping task only
             // after the handshake lands on Trusted. Sending `DataPing`

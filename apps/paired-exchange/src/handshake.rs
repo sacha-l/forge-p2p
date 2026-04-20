@@ -16,6 +16,7 @@
 //!
 //! Mutual authentication falls out of running both directions in parallel.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
@@ -67,6 +68,11 @@ impl HandlerCtx {
 }
 
 static HANDLER_CTX: OnceLock<Arc<HandlerCtx>> = OnceLock::new();
+
+/// Count of `Challenge` frames this process has sent via
+/// [`initiate_handshake`]. Tests assert on this to prove persistence
+/// skipped the handshake.
+pub static CHALLENGE_SENT: AtomicU64 = AtomicU64::new(0);
 
 /// Install the process-wide handler context. Must be called once, before
 /// any RPC could arrive. Returns an error if called twice.
@@ -147,6 +153,7 @@ pub async fn initiate_handshake(
 ) {
     let nonce = fresh_nonce();
     book.mark_challenged(peer, nonce);
+    CHALLENGE_SENT.fetch_add(1, Ordering::Relaxed);
     tracing::info!(peer = %peer, "handshake: sending Challenge");
 
     let req = AppData::SendRpc {

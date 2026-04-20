@@ -6,4 +6,5 @@ pub mod config;
 pub mod datagate;
 pub mod handshake;
 pub mod pairing;
+pub mod persistence;
 pub mod wire;
