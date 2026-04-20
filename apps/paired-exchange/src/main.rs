@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{Parser, ValueEnum};
 use forge_ui::{DialRequest, ForgeUI, MeshEvent};
+use paired_exchange::config::Config;
 use swarm_nl::core::{AppData, Core, CoreBuilder, NetworkEvent};
 use swarm_nl::setup::BootstrapConfig;
 use swarm_nl::PeerId;
@@ -54,9 +55,10 @@ struct Cli {
 
     /// 32-byte shared secret, hex-encoded (64 hex chars).
     /// Falls back to the SECRET environment variable if the flag is absent.
-    /// Parsed but unused in step 1; wired into the handshake from step 2 on.
+    /// Used by the pairing handshake from step 3 onwards; held in `Config`
+    /// today so the handshake can read it without further re-parsing.
     #[arg(long, env = "SECRET")]
-    secret: Option<String>,
+    secret: String,
 }
 
 #[tokio::main]
@@ -70,6 +72,8 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let role = cli.role;
+    let _config =
+        Config::from_hex(&cli.secret).context("failed to parse --secret / SECRET env var")?;
 
     // Programmatic bootstrap config. Explicit 127.0.0.1 addresses for local
     // dials (library-feedback: don't trust NewListenAddr's reported address).
@@ -113,12 +117,6 @@ async fn main() -> Result<()> {
     println!(
         "Tip:     start role A first, then role B; forge-ui auto-discovers on localhost and dials."
     );
-
-    // Parsed secret is not used yet in step 1 but we touch it so rustc does
-    // not warn about the unused CLI field during this early step.
-    if cli.secret.is_some() {
-        tracing::debug!("secret flag supplied (not yet used)");
-    }
 
     let (dial_tx, mut dial_rx) = mpsc::channel::<DialRequest>(64);
 
