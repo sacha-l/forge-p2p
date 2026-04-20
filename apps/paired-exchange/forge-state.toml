@@ -5,13 +5,13 @@ created = "2026-04-20T00:00:00Z"
 
 [progress]
 total_steps = 9
-current_step = 4
+current_step = 5
 status = "in-progress"
-last_completed_step = 3
-last_updated = "2026-04-20T07:50:00Z"
+last_completed_step = 4
+last_updated = "2026-04-20T07:55:00Z"
 
 [current_step]
-title = "Per-peer pairing state"
+title = "Handshake driver"
 attempt = 1
 files_modified = []
 
