@@ -1,0 +1,31 @@
+[app]
+name = "unleash"
+branch = "dev/unleash"
+created = "2026-04-17T18:00:00Z"
+
+[progress]
+total_steps = 6
+current_step = 6
+status = "complete"
+last_completed_step = 6
+last_updated = "2026-04-17T19:50:00Z"
+
+[current_step]
+title = "M5 — dashboard complete; runtime hardening tracked in KNOWN_ISSUES.md"
+attempt = 1
+files_modified = [
+  "static/",
+  "src/observer/mod.rs",
+  "src/observer/panels.rs",
+  "src/robot/mod.rs",
+]
+
+[blocker]
+step = 0
+description = ""
+is_library_issue = false
+
+[validation]
+last_cargo_check = "pass"
+last_cargo_clippy = "pass"
+last_cargo_test = "pass"
